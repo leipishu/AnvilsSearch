@@ -39,5 +39,12 @@
   "gui.anvilssearch.modifier.level": "Level %1$s",
   "gui.anvilssearch.modifier.no_recipe": "(no recipe)",
   "gui.anvilssearch.modifier.slots_label": "Slots:",
-  "gui.anvilssearch.modifier.slots_none": "None"
+  "gui.anvilssearch.modifier.slots_none": "None",
+
+  "gui.anvilssearch.modifier.click_expand": "Click to expand %1$s levels",
+  "gui.anvilssearch.modifier.incremental_hint": "Incremental: +%1$s per input, %2$s per level",
+  "gui.anvilssearch.modifier.tag_incremental": "Stk",
+  "gui.anvilssearch.modifier.incremental_tag": "Stk +%1$s/%2$s",
+  "gui.anvilssearch.modifier.incremental_title": "Incremental Modifier",
+  "gui.anvilssearch.modifier.incremental_summary": "Per level: %1$s · Max level: %2$s"
 }

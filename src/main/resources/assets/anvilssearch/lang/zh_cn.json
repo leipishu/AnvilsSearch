@@ -39,5 +39,12 @@
   "gui.anvilssearch.modifier.level": "等级 %1$s",
   "gui.anvilssearch.modifier.no_recipe": "（无配方）",
   "gui.anvilssearch.modifier.slots_label": "需要槽位：",
-  "gui.anvilssearch.modifier.slots_none": "无"
+  "gui.anvilssearch.modifier.slots_none": "无",
+
+  "gui.anvilssearch.modifier.click_expand": "点击展开 %1$s 个等级",
+  "gui.anvilssearch.modifier.incremental_hint": "叠加配方：每投入 +%1$s 进度，每 %2$s 进度升 1 级",
+  "gui.anvilssearch.modifier.tag_incremental": "叠",
+  "gui.anvilssearch.modifier.incremental_tag": "叠 +%1$s/%2$s",
+  "gui.anvilssearch.modifier.incremental_title": "叠加强化",
+  "gui.anvilssearch.modifier.incremental_summary": "每级 %1$s 个 / 最高 %2$s 级"
 }

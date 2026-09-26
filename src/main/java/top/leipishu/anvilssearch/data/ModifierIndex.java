@@ -2,38 +2,56 @@ package top.leipishu.anvilssearch.data;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.TextColor;
 import net.minecraft.network.chat.TextComponent;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeManager;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class ModifierIndex {
 
+    public enum RecipeKind { SIMPLE, INCREMENTAL, MULTILEVEL }
+
     public static final class LevelInfo {
         public final int level;
+        public final Component displayName;
         public final List<Component> slotLines;
         public final List<ItemStack> materials;
         public final List<Component> materialLines;
+        public final Object toolFilter;
+        public final RecipeKind kind;
+        public final int amountPerInput;
+        public final int neededPerLevel;
 
-        public LevelInfo(int level, List<Component> slotLines,
-                         List<ItemStack> materials, List<Component> materialLines) {
+        public LevelInfo(int level, Component displayName,
+                         List<Component> slotLines,
+                         List<ItemStack> materials, List<Component> materialLines,
+                         Object toolFilter, RecipeKind kind,
+                         int amountPerInput, int neededPerLevel) {
             this.level = level;
+            this.displayName = displayName != null ? displayName : new TextComponent("?");
             this.slotLines = slotLines != null ? slotLines : Collections.emptyList();
             this.materials = materials != null ? materials : Collections.emptyList();
             this.materialLines = materialLines != null ? materialLines : Collections.emptyList();
+            this.toolFilter = toolFilter;
+            this.kind = kind != null ? kind : RecipeKind.SIMPLE;
+            this.amountPerInput = amountPerInput;
+            this.neededPerLevel = neededPerLevel;
+        }
+    }
+
+    private static final class MaterialResult {
+        final List<ItemStack> icons;
+        final List<Component> lines;
+        MaterialResult(List<ItemStack> icons, List<Component> lines) {
+            this.icons = icons != null ? icons : Collections.emptyList();
+            this.lines = lines != null ? lines : Collections.emptyList();
         }
     }
 
@@ -41,37 +59,39 @@ public final class ModifierIndex {
         public final Object modifier;
         public final String id;
         public final String registryPath;
-        private final Component displayName;
+        public final int color;
+        public final int maxLevel;
         public final List<LevelInfo> levels;
 
         public Entry(Object modifier, String id, String registryPath,
-                     Component displayName, List<LevelInfo> levels) {
+                     int color, int maxLevel, List<LevelInfo> levels) {
             this.modifier = modifier;
             this.id = id;
             this.registryPath = registryPath;
-            this.displayName = displayName;
+            this.color = color;
+            this.maxLevel = maxLevel;
             this.levels = levels != null ? levels : new ArrayList<>();
         }
 
         public String getDisplayName() {
             try {
-                if (displayName != null) {
-                    String s = displayName.getString();
-                    if (s != null && !s.isEmpty() && !s.startsWith("modifier.")) return s;
-                }
+                Component c = getDisplayNameComponent(1);
+                String s = c.getString();
+                if (s != null && !s.isEmpty()) return s;
             } catch (Throwable ignored) {}
             return prettify(registryPath);
         }
 
         public Component getDisplayNameComponent(int level) {
-            try {
-                Method m = modifier.getClass().getMethod("getDisplayName", int.class);
-                m.setAccessible(true);
-                Object v = m.invoke(modifier, level);
-                if (v instanceof Component c) return c;
-            } catch (Throwable ignored) {}
-            return displayName != null ? displayName
-                    : new TextComponent(prettify(registryPath));
+            for (String mn : new String[]{"getDisplayName", "getColoredName", "getName"}) {
+                try {
+                    Method m = modifier.getClass().getMethod(mn, int.class);
+                    m.setAccessible(true);
+                    Object v = m.invoke(modifier, level);
+                    if (v instanceof Component c) return c;
+                } catch (Throwable ignored) {}
+            }
+            return new TextComponent(prettify(registryPath) + " " + level);
         }
 
         public List<Component> getDescriptionList(int level) {
@@ -84,7 +104,7 @@ public final class ModifierIndex {
                         if (v instanceof List<?> list) {
                             List<Component> out = new ArrayList<>();
                             for (Object o : list) if (o instanceof Component c) out.add(c);
-                            return out;
+                            if (!out.isEmpty()) return out;
                         }
                     }
                 } catch (Throwable ignored) {}
@@ -96,18 +116,12 @@ public final class ModifierIndex {
                         if (v instanceof List<?> list) {
                             List<Component> out = new ArrayList<>();
                             for (Object o : list) if (o instanceof Component c) out.add(c);
-                            return out;
+                            if (!out.isEmpty()) return out;
                         }
                     }
                 } catch (Throwable ignored) {}
             }
             return Collections.emptyList();
-        }
-
-        public int getMaxLevel() {
-            int max = 1;
-            for (LevelInfo li : levels) if (li.level > max) max = li.level;
-            return max;
         }
     }
 
@@ -142,11 +156,10 @@ public final class ModifierIndex {
         }
         RecipeManager rm = mc.getConnection().getRecipeManager();
 
-        Map<String, Map<Integer, LevelInfo>> byModifier = new LinkedHashMap<>();
+        Map<String, List<Object>> recipesByMod = new LinkedHashMap<>();
         Map<String, Object> modifierById = new LinkedHashMap<>();
-        Map<String, Component> displayById = new LinkedHashMap<>();
 
-        int scanned = 0, kept = 0;
+        int scanned = 0;
 
         for (Recipe<?> recipe : rm.getRecipes()) {
             if (recipe == null) continue;
@@ -163,67 +176,458 @@ public final class ModifierIndex {
                 String modId = extractModifierId(modifier);
                 if (modId == null || modId.isEmpty()) continue;
 
-                int level = readLevelFromEntry(resultEntry);
-
-                List<Component> slotLines = readSlotLines(recipe);
-                List<ItemStack> materials = new ArrayList<>();
-                List<Component> materialLines = new ArrayList<>();
-                readMaterials(recipe, materials, materialLines);
-
                 Class<?> cls = recipe.getClass();
                 if (DIAGNOSED.add(cls)) {
-                    System.out.println("[Anvil's Search] ModifierRecipe diag class = "
-                            + cls.getName());
-                    StringBuilder fs = new StringBuilder("[Anvil's Search]   fields:");
-                    Class<?> c = cls;
-                    while (c != null && c != Object.class) {
-                        for (Field f : c.getDeclaredFields()) {
-                            fs.append(" ").append(f.getName())
-                                    .append(":").append(f.getType().getSimpleName());
-                        }
-                        c = c.getSuperclass();
-                    }
-                    System.out.println(fs);
+                    System.out.println("[Anvil's Search] ModifierRecipe diag class = " + cls.getName());
                 }
 
-                byModifier.computeIfAbsent(modId, k -> new LinkedHashMap<>())
-                        .put(level, new LevelInfo(level, slotLines, materials, materialLines));
-
                 modifierById.putIfAbsent(modId, modifier);
-                displayById.putIfAbsent(modId, extractDisplayName(modifier, level));
-                kept++;
+                recipesByMod.computeIfAbsent(modId, k -> new ArrayList<>()).add(recipe);
             } catch (Throwable ignored) {}
         }
 
         List<Entry> result = new ArrayList<>();
-        for (Map.Entry<String, Map<Integer, LevelInfo>> e : byModifier.entrySet()) {
+        int multiCount = 0;
+
+        for (Map.Entry<String, Object> e : modifierById.entrySet()) {
             String id = e.getKey();
-            Object mod = modifierById.get(id);
-            if (mod == null) continue;
+            Object mod = e.getValue();
+            List<Object> recipes = recipesByMod.get(id);
+            if (recipes == null || recipes.isEmpty()) continue;
 
-            List<LevelInfo> levels = new ArrayList<>(e.getValue().values());
-            levels.sort(Comparator.comparingInt(li -> li.level));
+            try {
+                int color = extractColor(mod);
 
-            String path = id;
-            int colon = id.indexOf(':');
-            if (colon >= 0) path = id.substring(colon + 1);
+                Object incrementalRecipe = null;
+                Object multilevelRecipe = null;
+                List<Object> simpleRecipes = new ArrayList<>();
 
-            result.add(new Entry(mod, id, path, displayById.get(id), levels));
+                for (Object r : recipes) {
+                    RecipeKind k = detectKind(r);
+                    if (k == RecipeKind.INCREMENTAL && incrementalRecipe == null) {
+                        incrementalRecipe = r;
+                    } else if (k == RecipeKind.MULTILEVEL && multilevelRecipe == null) {
+                        multilevelRecipe = r;
+                    } else {
+                        simpleRecipes.add(r);
+                    }
+                }
+
+                List<LevelInfo> levels = new ArrayList<>();
+
+                // 分支 2：MultilevelModifierRecipe
+                if (multilevelRecipe != null) {
+                    List<?> subRecipes = tryGetSubRecipes(multilevelRecipe);
+                    if (subRecipes != null && !subRecipes.isEmpty()) {
+                        int idx = 1;
+                        for (Object sub : subRecipes) {
+                            List<Component> lvSlots = readSlotLines(sub);
+                            MaterialResult mr = readMaterialsFromDisplay(sub);
+                            Object tf = readFieldAny(sub,
+                                    "toolRequirement", "tools", "toolFilter", "toolIngredient");
+                            Component dn = extractDisplayName(mod, idx);
+                            levels.add(new LevelInfo(idx, dn, lvSlots, mr.icons, mr.lines,
+                                    tf, RecipeKind.MULTILEVEL, 0, 0));
+                            idx++;
+                        }
+                        if (levels.size() > 1) multiCount++;
+                    }
+                }
+
+                // 分支 1：IncrementalModifierRecipe
+                if (levels.isEmpty() && incrementalRecipe != null) {
+                    int maxLv = readIntField(incrementalRecipe, 1, "maxLevel", "max_level");
+                    int amountPerInput = readIntField(incrementalRecipe, 1, "amountPerInput", "amount_per_input");
+                    int neededPerLevel = readIntField(incrementalRecipe, 1, "neededPerLevel", "needed_per_level");
+
+                    List<Component> baseSlots = readSlotLines(incrementalRecipe);
+                    MaterialResult baseMr = readMaterialsFromDisplay(incrementalRecipe);
+                    Object tf = readFieldAny(incrementalRecipe,
+                            "toolRequirement", "tools", "toolFilter", "toolIngredient");
+
+                    for (int lv = 1; lv <= maxLv; lv++) {
+                        // 每级所需数量 = amountPerInput × 该级所需投入次数
+                        int countPerLevel = amountPerInput;
+                        if (neededPerLevel > 0 && amountPerInput > 0) {
+                            countPerLevel = (int) Math.ceil(
+                                    (double) neededPerLevel / amountPerInput);
+                        }
+
+                        List<ItemStack> mats = new ArrayList<>();
+                        List<Component> matLines = new ArrayList<>();
+                        for (ItemStack s : baseMr.icons) {
+                            for (int i = 0; i < countPerLevel; i++) {
+                                ItemStack copy = s.copy();
+                                copy.setCount(1);
+                                mats.add(copy);
+                            }
+                            if (!matLines.isEmpty()) continue;
+                            matLines.add(new TextComponent("\u00A77"
+                                    + s.getHoverName().getString() + " \u00D7" + countPerLevel));
+                        }
+
+                        Component dn = extractDisplayName(mod, lv);
+                        levels.add(new LevelInfo(lv, dn, baseSlots, mats, matLines,
+                                tf, RecipeKind.INCREMENTAL, amountPerInput, neededPerLevel));
+                    }
+                    if (levels.size() > 1) multiCount++;
+                }
+
+                // 分支 4：多个独立 recipe（含 SwappableModifierRecipe）
+                if (levels.isEmpty() && !simpleRecipes.isEmpty()) {
+                    simpleRecipes.sort(Comparator.comparing(ModifierIndex::getRecipeId));
+
+                    int idx = 1;
+                    for (Object r : simpleRecipes) {
+                        List<Component> lvSlots = readSlotLines(r);
+                        MaterialResult mr = readMaterialsFromDisplay(r);
+                        Object toolFilter = readFieldAny(r,
+                                "toolRequirement", "tools", "toolFilter", "toolIngredient");
+
+                        Component dn = extractDisplayName(mod, idx);
+                        levels.add(new LevelInfo(idx, dn, lvSlots, mr.icons, mr.lines,
+                                toolFilter, RecipeKind.SIMPLE, 0, 0));
+                        idx++;
+                    }
+                }
+
+                if (levels.isEmpty()) continue;
+
+                String path = id;
+                int colon = id.indexOf(':');
+                if (colon >= 0) path = id.substring(colon + 1);
+
+                result.add(new Entry(mod, id, path, color, levels.size(), levels));
+            } catch (Throwable t) {
+                System.err.println("[Anvil's Search] failed " + id + ": " + t);
+            }
         }
 
         result.sort(Comparator.comparing(Entry::getDisplayName, String.CASE_INSENSITIVE_ORDER));
 
         System.out.println("[Anvil's Search] ModifierIndex built: " + result.size()
-                + " modifiers, " + kept + " level-recipe(s) from " + scanned
+                + " modifiers (" + multiCount + " multi-level) from " + scanned
                 + " modifier recipes in " + (System.currentTimeMillis() - t0) + "ms");
         return result;
+    }
+
+    // ============================================================
+    // ===== 材料 =================================================
+    // ============================================================
+
+    private static MaterialResult readMaterialsFromDisplay(Object recipe) {
+        List<ItemStack> icons = new ArrayList<>();
+        List<Component> lines = new ArrayList<>();
+        if (recipe == null) return new MaterialResult(icons, lines);
+
+        // ★ 特殊：IncrementalModifierRecipe 用 input:Ingredient + amountPerInput
+        Object inputField = readFieldAny(recipe, "input");
+        if (inputField instanceof Ingredient ing) {
+            int amount = readIntField(recipe, 1, "amountPerInput", "amount_per_input");
+            if (amount < 1) amount = 1;
+            ItemStack extracted = firstFromIngredient(ing);
+            if (!extracted.isEmpty()) {
+                // 按 amount 展开为 N 个独立图标
+                for (int i = 0; i < amount; i++) {
+                    ItemStack copy = extracted.copy();
+                    copy.setCount(1);
+                    icons.add(copy);
+                }
+                lines.add(new TextComponent("\u00A77"
+                        + extracted.getHoverName().getString() + " \u00D7" + amount));
+                return new MaterialResult(icons, lines);
+            }
+        }
+
+        // 通用路径：getInputs() / getDisplayInputs() / 字段 inputs / ingredients
+        Object inputsObj = null;
+        for (String mn : new String[]{"getInputs", "getDisplayInputs"}) {
+            Method m = findMethod(recipe.getClass(), mn);
+            if (m == null || m.getParameterCount() != 0) continue;
+            try {
+                m.setAccessible(true);
+                Object v = m.invoke(recipe);
+                if (v instanceof List<?> l && !l.isEmpty()) { inputsObj = v; break; }
+            } catch (Throwable ignored) {}
+        }
+        if (inputsObj == null) {
+            Object v = readFieldAny(recipe, "inputs", "ingredients", "input");
+            if (v != null) inputsObj = v;
+        }
+        if (inputsObj == null) return new MaterialResult(icons, lines);
+
+        List<Object> list = new ArrayList<>();
+        if (inputsObj instanceof Object[] arr) {
+            for (Object o : arr) list.add(o);
+        } else if (inputsObj instanceof Collection<?> col) {
+            list.addAll(col);
+        } else {
+            list.add(inputsObj);
+        }
+
+        Map<String, Integer> countMap = new LinkedHashMap<>();
+        Map<String, ItemStack> repMap = new LinkedHashMap<>();
+
+        for (Object sized : list) {
+            if (sized == null) continue;
+            ItemStack stack = extractStackFromSized(sized);
+            int count = extractCount(sized);
+            if (stack.isEmpty()) continue;
+
+            // ★ 按 count 展开为 N 个独立图标（每个 count=1）
+            for (int i = 0; i < count; i++) {
+                ItemStack copy = stack.copy();
+                copy.setCount(1);
+                icons.add(copy);
+            }
+
+            String key;
+            try {
+                String regName = stack.getItem().getRegistryName() != null
+                        ? stack.getItem().getRegistryName().toString()
+                        : stack.getItem().toString();
+                String nbt = stack.getTag() != null ? stack.getTag().toString() : "";
+                key = regName + "|" + nbt;
+            } catch (Throwable t) {
+                key = stack.toString();
+            }
+            countMap.merge(key, count, Integer::sum);
+            repMap.putIfAbsent(key, stack);
+        }
+
+        for (Map.Entry<String, Integer> e : countMap.entrySet()) {
+            ItemStack rep = repMap.get(e.getKey());
+            int count = e.getValue();
+            lines.add(new TextComponent("\u00A77"
+                    + rep.getHoverName().getString() + " \u00D7" + count));
+        }
+
+        return new MaterialResult(icons, lines);
+    }
+
+    private static ItemStack firstFromIngredient(Ingredient ing) {
+        if (ing == null) return ItemStack.EMPTY;
+        try {
+            ItemStack[] items = ing.getItems();
+            if (items.length > 0 && !items[0].isEmpty()) return items[0].copy();
+        } catch (Throwable ignored) {}
+        return ItemStack.EMPTY;
+    }
+
+    private static ItemStack extractStackFromSized(Object sized) {
+        if (sized == null) return ItemStack.EMPTY;
+        if (sized instanceof ItemStack s) return s.isEmpty() ? ItemStack.EMPTY : s.copy();
+        if (sized instanceof Ingredient ing) return firstFromIngredient(ing);
+
+        for (String mn : new String[]{"getIngredient", "getInner", "getItem", "getStack"}) {
+            Method m = findMethod(sized.getClass(), mn);
+            if (m == null || m.getParameterCount() != 0) continue;
+            try {
+                m.setAccessible(true);
+                Object v = m.invoke(sized);
+                ItemStack got = extractFromAny(v, 2);
+                if (!got.isEmpty()) return got;
+            } catch (Throwable ignored) {}
+        }
+
+        Class<?> c = sized.getClass();
+        while (c != null && c != Object.class) {
+            for (Field f : c.getDeclaredFields()) {
+                String fn = f.getName().toLowerCase();
+                if (!fn.contains("ingredient") && !fn.contains("input")
+                        && !fn.contains("item") && !fn.contains("stack")) continue;
+                f.setAccessible(true);
+                try {
+                    Object v = f.get(sized);
+                    ItemStack got = extractFromAny(v, 2);
+                    if (!got.isEmpty()) return got;
+                } catch (Throwable ignored) {}
+            }
+            c = c.getSuperclass();
+        }
+        return ItemStack.EMPTY;
+    }
+
+    private static ItemStack extractFromAny(Object v, int depth) {
+        if (v == null || depth < 0) return ItemStack.EMPTY;
+        if (v instanceof ItemStack s) return s.isEmpty() ? ItemStack.EMPTY : s.copy();
+        if (v instanceof Ingredient ing) return firstFromIngredient(ing);
+        if (v instanceof net.minecraft.world.item.Item item) return new ItemStack(item);
+
+        if (v instanceof ItemStack[] arr) {
+            for (ItemStack s : arr) if (s != null && !s.isEmpty()) return s.copy();
+        }
+        if (v instanceof Object[] arr2) {
+            for (Object o : arr2) {
+                ItemStack s = extractFromAny(o, depth - 1);
+                if (!s.isEmpty()) return s;
+            }
+        }
+        if (v instanceof Collection<?> col) {
+            for (Object o : col) {
+                ItemStack s = extractFromAny(o, depth - 1);
+                if (!s.isEmpty()) return s;
+            }
+        }
+        if (v instanceof java.util.stream.Stream<?> st) {
+            Object first = st.findFirst().orElse(null);
+            return extractFromAny(first, depth - 1);
+        }
+        if (depth > 0) {
+            for (String mn : new String[]{"getItems", "getMatchingStacks", "getStacks", "getItem"}) {
+                Method m = findMethod(v.getClass(), mn);
+                if (m == null || m.getParameterCount() != 0) continue;
+                try {
+                    m.setAccessible(true);
+                    Object r = m.invoke(v);
+                    ItemStack s = extractFromAny(r, depth - 1);
+                    if (!s.isEmpty()) return s;
+                } catch (Throwable ignored) {}
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
+    private static int extractCount(Object sized) {
+        for (String mn : new String[]{"getCount", "getAmount", "getNeeded"}) {
+            try {
+                Method m = sized.getClass().getMethod(mn);
+                m.setAccessible(true);
+                Object v = m.invoke(sized);
+                if (v instanceof Number n) return n.intValue();
+            } catch (Throwable ignored) {}
+        }
+        return 1;
+    }
+
+    // ============================================================
+    // ===== 槽位 =================================================
+    // ============================================================
+
+    private static List<Component> readSlotLines(Object recipe) {
+        Object slots = readFieldAny(recipe, "slots", "slotRequirements", "requiredSlots");
+        if (slots == null) return Collections.emptyList();
+
+        List<Component> out = new ArrayList<>();
+
+        String slotName = null;
+        int count = 0;
+
+        for (String mn : new String[]{"getSlot", "slot", "getSlotType", "slotType", "getType"}) {
+            try {
+                Method m = findMethod(slots.getClass(), mn);
+                if (m == null || m.getParameterCount() != 0) continue;
+                m.setAccessible(true);
+                Object v = m.invoke(slots);
+                if (v != null) { slotName = slotTypeDisplayName(v); break; }
+            } catch (Throwable ignored) {}
+        }
+        if (slotName == null) {
+            Object fv = readFieldAny(slots, "slot", "slotType", "type");
+            if (fv != null) slotName = slotTypeDisplayName(fv);
+        }
+
+        for (String mn : new String[]{"getCount", "count", "getAmount", "getSize"}) {
+            try {
+                Method m = findMethod(slots.getClass(), mn);
+                if (m == null || m.getParameterCount() != 0) continue;
+                m.setAccessible(true);
+                Object v = m.invoke(slots);
+                if (v instanceof Number n) { count = n.intValue(); break; }
+            } catch (Throwable ignored) {}
+        }
+        if (count == 0) {
+            Object fv = readFieldAny(slots, "count", "amount", "size");
+            if (fv instanceof Number n) count = n.intValue();
+        }
+
+        if (slotName != null && count > 0) {
+            out.add(new TextComponent("\u00A77" + slotName
+                    + (count > 1 ? " \u00D7" + count : "")));
+        }
+        return out;
+    }
+
+    private static String slotTypeDisplayName(Object slot) {
+        if (slot == null) return "?";
+
+        String id = null;
+        for (String mn : new String[]{"getName", "getId", "getRegistryName",
+                "name", "id", "getLocation"}) {
+            try {
+                Method m = findMethod(slot.getClass(), mn);
+                if (m == null || m.getParameterCount() != 0) continue;
+                m.setAccessible(true);
+                Object v = m.invoke(slot);
+                if (v != null) { id = v.toString(); break; }
+            } catch (Throwable ignored) {}
+        }
+        if (id == null) id = String.valueOf(slot);
+
+        String lower = id.toLowerCase();
+        if (lower.contains("upgrade") || lower.contains("升级")) return "升级";
+        if (lower.contains("abilit") || lower.contains("能力"))  return "能力";
+        if (lower.contains("defense") || lower.contains("防御")) return "防御";
+        if (lower.contains("soul") || lower.contains("灵魂"))    return "灵魂";
+
+        int open = id.indexOf('{');
+        int close = id.indexOf('}');
+        if (open >= 0 && close > open) id = id.substring(open + 1, close);
+        int ob = id.indexOf('[');
+        int cb = id.indexOf(']');
+        if (ob >= 0 && cb > ob) id = id.substring(ob + 1, cb);
+
+        if (id.toLowerCase().startsWith("slot=")) id = id.substring(5);
+        int comma = id.indexOf(',');
+        if (comma > 0) id = id.substring(0, comma).trim();
+
+        return id;
+    }
+
+    // ============================================================
+    // ===== 工具 =================================================
+    // ============================================================
+
+    private static List<?> tryGetSubRecipes(Object recipe) {
+        for (String mn : new String[]{"getRecipes", "getLevelRecipes", "getSubRecipes"}) {
+            Method m = findMethod(recipe.getClass(), mn);
+            if (m == null || m.getParameterCount() != 0) continue;
+            try {
+                m.setAccessible(true);
+                Object v = m.invoke(recipe);
+                if (v instanceof List<?> list && list.size() > 1) return list;
+            } catch (Throwable ignored) {}
+        }
+        return null;
+    }
+
+    /**
+     * ★ 判定配方类型。
+     *   1) 类名含 Incremental / Multilevel
+     *   2) 字段兜底：有 input:Ingredient + amountPerInput:int → INCREMENTAL
+     */
+    private static RecipeKind detectKind(Object recipe) {
+        Class<?> c = recipe.getClass();
+        while (c != null && c != Object.class) {
+            String n = c.getSimpleName();
+            if (n.contains("Incremental")) return RecipeKind.INCREMENTAL;
+            if (n.contains("Multilevel") || n.contains("MultiLevel"))
+                return RecipeKind.MULTILEVEL;
+            c = c.getSuperclass();
+        }
+        // 字段兜底
+        Object input = readFieldAny(recipe, "input");
+        Object amount = readFieldAny(recipe, "amountPerInput", "amount_per_input");
+        if (input instanceof Ingredient && amount instanceof Number) {
+            return RecipeKind.INCREMENTAL;
+        }
+        return RecipeKind.SIMPLE;
     }
 
     private static boolean isModifierRecipe(Recipe<?> recipe) {
         Class<?> c = recipe.getClass();
         while (c != null && c != Object.class) {
-            String n = c.getSimpleName();
-            if (n.contains("ModifierRecipe")) return true;
+            if (c.getSimpleName().contains("ModifierRecipe")) return true;
             c = c.getSuperclass();
         }
         return false;
@@ -252,229 +656,52 @@ public final class ModifierIndex {
         return null;
     }
 
-    private static int readLevelFromEntry(Object entry) {
-        try {
-            Method m = entry.getClass().getMethod("getLevel");
-            Object v = m.invoke(entry);
-            if (v instanceof Number n) return n.intValue();
-        } catch (Throwable ignored) {}
-        return 1;
-    }
-
     private static Component extractDisplayName(Object modifier, int level) {
         for (String mn : new String[]{"getDisplayName", "getColoredName", "getName"}) {
             try {
                 Method m = modifier.getClass().getMethod(mn, int.class);
+                m.setAccessible(true);
                 Object v = m.invoke(modifier, level);
                 if (v instanceof Component c) return c;
             } catch (Throwable ignored) {}
         }
-        for (String mn : new String[]{"getDisplayName", "getColoredName", "getName"}) {
-            try {
-                Method m = modifier.getClass().getMethod(mn);
-                Object v = m.invoke(modifier);
-                if (v instanceof Component c) return c;
-            } catch (Throwable ignored) {}
-        }
-        return null;
+        String id = extractModifierId(modifier);
+        String base = id != null ? prettify(id) : "?";
+        return new TextComponent(base + (level > 1 ? " " + level : ""));
     }
 
-    private static List<Component> readSlotLines(Object recipe) {
-        Object slots = readFieldAny(recipe, "slots", "slotRequirements", "requiredSlots");
-        if (slots == null) return Collections.emptyList();
+    private static int readIntField(Object obj, int def, String... names) {
+        for (String name : names) {
+            Object v = readFieldAny(obj, name);
+            if (v instanceof Number n) return n.intValue();
+        }
+        return def;
+    }
 
-        List<Component> out = new ArrayList<>();
-
+    private static int extractColor(Object modifier) {
         try {
-            Method getSlot = slots.getClass().getMethod("getSlot");
-            Method getCount = slots.getClass().getMethod("getCount");
-            Object slotType = getSlot.invoke(slots);
-            Object cnt = getCount.invoke(slots);
-            if (slotType != null && cnt instanceof Number n && n.intValue() > 0) {
-                String slotName = slotTypeDisplayName(slotType);
-                out.add(new TextComponent("\u00A77" + slotName
-                        + (n.intValue() > 1 ? " \u00D7" + n.intValue() : "")));
-                return out;
+            Method m = modifier.getClass().getMethod("getDisplayName", int.class);
+            m.setAccessible(true);
+            Object v = m.invoke(modifier, 1);
+            if (v instanceof Component c) {
+                TextColor tc = c.getStyle().getColor();
+                if (tc != null) return tc.getValue();
+                for (Component s : c.getSiblings()) {
+                    TextColor tc2 = s.getStyle().getColor();
+                    if (tc2 != null) return tc2.getValue();
+                }
             }
         } catch (Throwable ignored) {}
-
-        if (slots instanceof Map<?, ?> map) {
-            for (Map.Entry<?, ?> e : map.entrySet()) {
-                String name = slotTypeDisplayName(e.getKey());
-                int cnt = 1;
-                if (e.getValue() instanceof Number n) cnt = n.intValue();
-                out.add(new TextComponent("\u00A77" + name
-                        + (cnt > 1 ? " \u00D7" + cnt : "")));
-            }
-        } else if (slots instanceof Collection<?> col) {
-            for (Object o : col) {
-                out.add(new TextComponent("\u00A77" + slotTypeDisplayName(o)));
-            }
-        } else {
-            out.add(new TextComponent("\u00A77" + slotTypeDisplayName(slots)));
-        }
-        return out;
+        return 0xFFFFFF;
     }
 
-    private static String slotTypeDisplayName(Object slot) {
-        if (slot == null) return "?";
-
-        String id = null;
-        for (String mn : new String[]{"getName", "getId", "getRegistryName"}) {
-            try {
-                Method m = slot.getClass().getMethod(mn);
-                Object v = m.invoke(slot);
-                if (v != null) { id = v.toString(); break; }
-            } catch (Throwable ignored) {}
-        }
-        if (id == null) id = String.valueOf(slot);
-
-        String lower = id.toLowerCase();
-        if (lower.contains("upgrade") || lower.contains("升级")) return "升级";
-        if (lower.contains("abilit") || lower.contains("能力"))  return "能力";
-        if (lower.contains("defense") || lower.contains("防御")) return "防御";
-        if (lower.contains("soul") || lower.contains("灵魂"))    return "灵魂";
-
-        int open = id.indexOf('{');
-        int close = id.indexOf('}');
-        if (open >= 0 && close > open) id = id.substring(open + 1, close);
-
-        for (String mn : new String[]{"getDisplayName"}) {
-            try {
-                Method m = slot.getClass().getMethod(mn);
-                Object v = m.invoke(slot);
-                if (v instanceof Component c) return c.getString();
-            } catch (Throwable ignored) {}
-        }
-        return id;
-    }
-
-    private static void readMaterials(Object recipe,
-                                      List<ItemStack> outItems,
-                                      List<Component> outLines) {
-        Object ing = readFieldAny(recipe, "ingredients", "inputs", "input");
-        if (ing == null) return;
-
-        List<Object> ingredients = new ArrayList<>();
-        if (ing instanceof Object[] arr) {
-            for (Object o : arr) ingredients.add(o);
-        } else if (ing instanceof Collection<?> col) {
-            ingredients.addAll(col);
-        } else {
-            ingredients.add(ing);
-        }
-
-        for (Object sized : ingredients) {
-            if (sized == null) continue;
-            ItemStack item = extractItemStack(sized);
-            int count = extractCount(sized);
-
-            if (item != null && !item.isEmpty()) {
-                outItems.add(item);
-                String name = item.getHoverName().getString();
-                outLines.add(new TextComponent("\u00A77" + name
-                        + (count > 1 ? " \u00D7" + count : "")));
-            } else {
-                outLines.add(new TextComponent("\u00A78"
-                        + sized.getClass().getSimpleName()));
-            }
-        }
-    }
-
-    private static ItemStack extractItemStack(Object sized) {
-        if (sized == null) return ItemStack.EMPTY;
-        if (sized instanceof ItemStack s) return s.copy();
-
-        for (String mn : new String[]{"getItems", "getMatchingStacks",
-                "getStacks", "getMatchingItems", "getIngredientItems"}) {
-            try {
-                Method m = sized.getClass().getMethod(mn);
-                m.setAccessible(true);
-                Object v = m.invoke(sized);
-                ItemStack got = firstItemFrom(v);
-                if (!got.isEmpty()) return got;
-            } catch (Throwable ignored) {}
-        }
-
-        for (String mn : new String[]{"getIngredient", "getInner"}) {
-            try {
-                Method m = sized.getClass().getMethod(mn);
-                m.setAccessible(true);
-                Object inner = m.invoke(sized);
-                if (inner != null) {
-                    for (String mn2 : new String[]{"getItems", "getMatchingStacks", "getStacks"}) {
-                        try {
-                            Method m2 = inner.getClass().getMethod(mn2);
-                            m2.setAccessible(true);
-                            Object v = m2.invoke(inner);
-                            ItemStack got = firstItemFrom(v);
-                            if (!got.isEmpty()) return got;
-                        } catch (Throwable ignored) {}
-                    }
-                }
-            } catch (Throwable ignored) {}
-        }
-
-        Class<?> c = sized.getClass();
-        while (c != null && c != Object.class) {
-            for (Field f : c.getDeclaredFields()) {
-                if (!f.getName().toLowerCase().contains("ingredient")) continue;
-                f.setAccessible(true);
-                try {
-                    Object inner = f.get(sized);
-                    if (inner == null) continue;
-                    for (String mn2 : new String[]{"getItems", "getMatchingStacks", "getStacks"}) {
-                        try {
-                            Method m2 = inner.getClass().getMethod(mn2);
-                            m2.setAccessible(true);
-                            Object v = m2.invoke(inner);
-                            ItemStack got = firstItemFrom(v);
-                            if (!got.isEmpty()) return got;
-                        } catch (Throwable ignored) {}
-                    }
-                } catch (Throwable ignored) {}
-            }
-            c = c.getSuperclass();
-        }
-
-        return ItemStack.EMPTY;
-    }
-
-    private static ItemStack firstItemFrom(Object v) {
-        if (v == null) return ItemStack.EMPTY;
-        if (v instanceof ItemStack s) return s.isEmpty() ? ItemStack.EMPTY : s.copy();
-        if (v instanceof ItemStack[] arr) {
-            for (ItemStack s : arr) {
-                if (s != null && !s.isEmpty()) return s.copy();
-            }
-        }
-        if (v instanceof Collection<?> col) {
-            for (Object o : col) {
-                if (o instanceof ItemStack s && !s.isEmpty()) return s.copy();
-            }
-        }
-        if (v instanceof java.util.stream.Stream<?> st) {
-            Object first = st.findFirst().orElse(null);
-            if (first instanceof ItemStack s && !s.isEmpty()) return s.copy();
-        }
-        if (v instanceof Object[] arr2) {
-            for (Object o : arr2) {
-                if (o instanceof ItemStack s && !s.isEmpty()) return s.copy();
-            }
-        }
-        return ItemStack.EMPTY;
-    }
-
-    private static int extractCount(Object sized) {
-        for (String mn : new String[]{"getCount", "getAmount", "getNeeded"}) {
-            try {
-                Method m = sized.getClass().getMethod(mn);
-                m.setAccessible(true);
-                Object v = m.invoke(sized);
-                if (v instanceof Number n) return n.intValue();
-            } catch (Throwable ignored) {}
-        }
-        return 1;
+    private static String getRecipeId(Object recipe) {
+        try {
+            Method m = recipe.getClass().getMethod("getId");
+            Object v = m.invoke(recipe);
+            if (v != null) return v.toString();
+        } catch (Throwable ignored) {}
+        return "";
     }
 
     private static Method findMethod(Class<?> cls, String name, Class<?>... params) {
@@ -506,7 +733,7 @@ public final class ModifierIndex {
 
     private static String prettify(String path) {
         if (path == null || path.isEmpty()) return "";
-        String[] w = path.split("_");
+        String[] w = path.split("[_:/]");
         StringBuilder sb = new StringBuilder();
         for (String s : w) {
             if (s.isEmpty()) continue;
