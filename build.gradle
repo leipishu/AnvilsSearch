@@ -1,0 +1,160 @@
+buildscript {
+    repositories {
+        maven { url = 'https://maven.minecraftforge.net' }
+        mavenCentral()
+    }
+    dependencies {
+        classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '5.1.+', changing: true
+    }
+}
+
+plugins {
+    id 'eclipse'
+    id 'maven-publish'
+}
+
+apply plugin: 'net.minecraftforge.gradle'
+
+// ============================================================================
+// Project metadata —— 全部从 gradle.properties 读取
+// ============================================================================
+version = project.property('anvilssearch.version')
+group   = 'top.leipishu.anvilssearch'
+archivesBaseName = 'anvilssearch'
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+def mcVersion       = project.property('anvilssearch.minecraft')
+def forgeVersion    = project.property('anvilssearch.forge')
+def mantleVersion   = project.property('anvilssearch.mantle')
+def tinkersVersion  = project.property('anvilssearch.tconstruct')
+
+def tsSlug    = project.property('anvilssearch.tinkerssearch.slug')
+def tsProject = project.property('anvilssearch.tinkerssearch.projectId')
+def tsFile    = project.property('anvilssearch.tinkerssearch.fileId')
+
+println "============================================================"
+println " Anvil's Search build configuration"
+println "   version            = ${version}"
+println "   minecraft          = ${mcVersion}"
+println "   forge              = ${forgeVersion}"
+println "   mantle             = ${mantleVersion}"
+println "   tconstruct         = ${tinkersVersion}"
+println "   tinkerssearch      = ${tsSlug}-${tsProject}:${tsFile}"
+println "============================================================"
+
+// ============================================================================
+// Minecraft / Forge
+// ============================================================================
+minecraft {
+    mappings channel: 'official', version: mcVersion
+
+    runs {
+        client {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+
+            mods {
+                anvilssearch {
+                    source sourceSets.main
+                }
+            }
+        }
+        server {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+
+            mods {
+                anvilssearch {
+                    source sourceSets.main
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// 仓库
+// ============================================================================
+repositories {
+    mavenCentral()
+    maven {
+        name = 'DVS1 Maven FS'
+        url = 'https://dvs1.progwml6.com/files/maven'
+    }
+    maven {
+        name = 'ModMaven'
+        url = 'https://modmaven.dev'
+    }
+    maven {
+        name = 'CurseMaven'
+        url = 'https://cursemaven.com'
+        content {
+            includeGroup 'curse.maven'
+        }
+    }
+}
+
+// ============================================================================
+// 依赖
+// ============================================================================
+dependencies {
+    minecraft "net.minecraftforge:forge:${mcVersion}-${forgeVersion}"
+
+    implementation fg.deobf("slimeknights.mantle:Mantle:${mcVersion}-${mantleVersion}")
+    implementation fg.deobf("slimeknights.tconstruct:TConstruct:${mcVersion}-${tinkersVersion}")
+
+    // Tinkers' Search 本体（CurseForge Maven）
+    implementation fg.deobf("curse.maven:${tsSlug}-${tsProject}:${tsFile}")
+}
+
+// ============================================================================
+// JAR
+// ============================================================================
+jar {
+    manifest {
+        attributes([
+                "Specification-Title"     : "anvilssearch",
+                "Specification-Vendor"    : "anvilssearch",
+                "Specification-Version"   : "1",
+                "Implementation-Title"    : project.name,
+                "Implementation-Version"  : project.jar.archiveVersion,
+                "Implementation-Vendor"   : "anvilssearch",
+                "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+        ])
+    }
+}
+
+// ============================================================================
+// 诊断任务：打印当前构建信息
+// ============================================================================
+task buildInfo {
+    group = 'help'
+    description = "Prints the current build configuration."
+    doLast {
+        println ""
+        println "============================================================"
+        println " Anvil's Search — Build Information"
+        println "------------------------------------------------------------"
+        println " Project version     : ${project.version}"
+        println " Archives base name  : ${project.archivesBaseName}"
+        println " Minecraft version   : ${mcVersion}"
+        println " Forge version       : ${mcVersion}-${forgeVersion}"
+        println " Mantle version      : ${mcVersion}-${mantleVersion}"
+        println " TConstruct version  : ${mcVersion}-${tinkersVersion}"
+        println " Tinkers' Search     : ${tsSlug}-${tsProject}:${tsFile}"
+        println "------------------------------------------------------------"
+        println " Expected output     : build/libs/anvilssearch-${project.version}.jar"
+        println "============================================================"
+        println ""
+    }
+}
+
+// ============================================================================
+// 编码
+// ============================================================================
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

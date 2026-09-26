@@ -1,0 +1,43 @@
+{
+  "key.category.anvilssearch": "铁砧搜索",
+  "key.anvilssearch.toggle_panel": "开关搜索面板",
+
+  "gui.anvilssearch.tab.parts": "部件",
+  "gui.anvilssearch.tab.simulator": "模拟",
+
+  "gui.anvilssearch.parts.empty": "暂无可用部件",
+
+  "gui.anvilssearch.tools.empty": "未加载工具",
+
+  "gui.anvilssearch.sim.pick_tool": "从左侧选择工具",
+  "gui.anvilssearch.sim.no_tool": "未选择工具",
+  "gui.anvilssearch.sim.materials": "已选材料",
+  "gui.anvilssearch.sim.tool_traits": "工具特性",
+  "gui.anvilssearch.sim.select_materials": "选择材料后此处显示部件详情",
+  "gui.anvilssearch.sim.click_to_choose": "点击选择",
+
+  "gui.anvilssearch.picker.empty": "（无可用材料）",
+  "gui.anvilssearch.detail.traits": "特性",
+  "gui.anvilssearch.detail.cost": "消耗：%1$s mB",
+  "gui.anvilssearch.detail.no_desc": "（暂无描述）",
+
+  "gui.anvilssearch.picker.search_hint": "搜索材料...",
+  "gui.anvilssearch.parts.search_material_hint": "搜索材料...",
+
+  "gui.anvilssearch.tab.modifier": "强化",
+  "gui.anvilssearch.modifier.search_hint": "搜索强化...",
+  "gui.anvilssearch.modifier.center_item": "物品",
+  "gui.anvilssearch.modifier.pick_hint": "从左侧选择强化",
+  "gui.anvilssearch.modifier.no_item": "中间槽位没有物品",
+  "gui.anvilssearch.modifier.applicable": "可应用于此物品",
+  "gui.anvilssearch.modifier.not_applicable": "不适用于此物品",
+  "gui.anvilssearch.modifier.slots": "需要槽位：",
+  "gui.anvilssearch.modifier.slots_unknown": "（?）",
+  "gui.anvilssearch.modifier.description": "描述",
+  "gui.anvilssearch.modifier.no_description": "（暂无描述）",
+  "gui.anvilssearch.modifier.empty": "未加载强化",
+  "gui.anvilssearch.modifier.level": "等级 %1$s",
+  "gui.anvilssearch.modifier.no_recipe": "（无配方）",
+  "gui.anvilssearch.modifier.slots_label": "需要槽位：",
+  "gui.anvilssearch.modifier.slots_none": "无"
+}

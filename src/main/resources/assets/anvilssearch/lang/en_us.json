@@ -1,0 +1,43 @@
+{
+  "key.category.anvilssearch": "Anvil's Search",
+  "key.anvilssearch.toggle_panel": "Toggle Search Panel",
+
+  "gui.anvilssearch.tab.parts": "Parts",
+  "gui.anvilssearch.tab.simulator": "Simulator",
+
+  "gui.anvilssearch.parts.empty": "No parts available",
+
+  "gui.anvilssearch.tools.empty": "No tools loaded",
+
+  "gui.anvilssearch.sim.pick_tool": "Pick a tool from the left",
+  "gui.anvilssearch.sim.no_tool": "No tool selected",
+  "gui.anvilssearch.sim.materials": "Materials",
+  "gui.anvilssearch.sim.tool_traits": "Tool Traits",
+  "gui.anvilssearch.sim.select_materials": "Choose materials to see part details",
+  "gui.anvilssearch.sim.click_to_choose": "Click to choose",
+
+  "gui.anvilssearch.picker.empty": "(no materials)",
+  "gui.anvilssearch.detail.traits": "Traits",
+  "gui.anvilssearch.detail.cost": "Cost: %1$s mB",
+  "gui.anvilssearch.detail.no_desc": "(no description)",
+
+  "gui.anvilssearch.picker.search_hint": "Search material...",
+  "gui.anvilssearch.parts.search_material_hint": "Search material...",
+
+  "gui.anvilssearch.tab.modifier": "Modifiers",
+  "gui.anvilssearch.modifier.search_hint": "Search modifier...",
+  "gui.anvilssearch.modifier.center_item": "Item",
+  "gui.anvilssearch.modifier.pick_hint": "Pick a modifier from the left",
+  "gui.anvilssearch.modifier.no_item": "No item in the center slot",
+  "gui.anvilssearch.modifier.applicable": "Applicable to this item",
+  "gui.anvilssearch.modifier.not_applicable": "Not applicable",
+  "gui.anvilssearch.modifier.slots": "Required slots:",
+  "gui.anvilssearch.modifier.slots_unknown": "(?)",
+  "gui.anvilssearch.modifier.description": "Description",
+  "gui.anvilssearch.modifier.no_description": "(No description)",
+  "gui.anvilssearch.modifier.empty": "No modifiers loaded",
+  "gui.anvilssearch.modifier.level": "Level %1$s",
+  "gui.anvilssearch.modifier.no_recipe": "(no recipe)",
+  "gui.anvilssearch.modifier.slots_label": "Slots:",
+  "gui.anvilssearch.modifier.slots_none": "None"
+}

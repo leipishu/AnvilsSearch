@@ -1,0 +1,96 @@
+Tinker's Search - Credits
+
+============================================================================
+  Development
+============================================================================
+
+  Lead Developer
+  ──────────────
+    Leipishu
+
+  Special Thanks
+  ──────────────
+    - Tinkers' Construct team for their amazing mod
+    - JEI team for providing recipe API
+    - Mantle team
+    - All users who reported issues and suggested features
+
+============================================================================
+  Third-Party Dependencies
+============================================================================
+
+  Tinkers' Construct
+  ──────────────────
+    License: MIT License
+    URL: https://github.com/SlimeKnights/TinkersConstruct
+
+  Mantle
+  ──────
+    License: MIT License
+    URL: https://github.com/SlimeKnights/Mantle
+
+  Just Enough Items (JEI)
+  ───────────────────────
+    License: MIT License
+    URL: https://github.com/mezz/JustEnoughItems
+
+    (JEI is an optional dependency)
+
+  pinyin4j
+  ────────
+    License: Apache License 2.0
+    URL: https://github.com/belerweb/pinyin4j
+
+    (Bundled via Jar-in-Jar in the Full build only.
+     The Lite build does NOT include pinyin4j.)
+
+============================================================================
+  Build Variants
+============================================================================
+
+  Tinker's Search provides two builds with identical features
+  except for pinyin search support:
+
+  Full Build
+  ──────────
+    - File name: tinkers-search-<version>.jar
+    - Includes pinyin4j via Jar-in-Jar
+    - Supports pinyin search (full pinyin and initials)
+    - Approximate size: 420 KB
+
+  Lite Build
+  ──────────
+    - File name: tinkers-search-<version>-lite.jar
+    - Does NOT include pinyin4j
+    - Pinyin search is disabled; literal text matching still works
+    - Approximate size: 215 KB
+
+  Both builds share all other features: fluid search, three tabs
+  (Smeltery / Materials / Alloy), alloy query, favorites, fluid
+  detail screen, JEI integration, bookmarks, refresh, and scrolling.
+
+============================================================================
+  Minecraft & Forge
+============================================================================
+
+  This mod is created for:
+    Minecraft 1.18.2
+    Minecraft Forge 40.2.10+
+
+  Minecraft is property of Mojang Studios.
+  Forge is property of the Forge Development Team.
+
+============================================================================
+  License
+============================================================================
+
+  Tinker's Search is licensed under:
+    GNU Lesser General Public License v3.0
+
+  Bundled dependency (Full build only):
+    pinyin4j - Apache License 2.0
+
+  See LICENSE.txt for the full license text.
+  SPDX-License-Identifier: LGPL-3.0-only
+
+============================================================================

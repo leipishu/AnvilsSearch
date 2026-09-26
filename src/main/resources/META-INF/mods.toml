@@ -1,0 +1,83 @@
+modLoader="javafml"
+loaderVersion="[40,)"
+license="LGPL-3.0"
+
+[[mods]]
+modId="anvilssearch"
+version="${file.jarVersion}"
+displayName="Anvil's Search"
+logoFile="logo.png"
+credits=""
+authors="leipishu"
+side="CLIENT"
+description='''
+Anvil's Search is a companion addon for Tinkers' Search, extending its search
+experience to the Tinker's Anvil.
+
+Ever wished you could plan a tool before committing materials at the Anvil?
+This mod adds a side panel to the Tinker's Anvil GUI, offering two dedicated tabs.
+
+Features:
+- Part / Material browser: lists every craftable part and all materials that can produce it
+- Tool Simulator: pick a tool, fill its part slots with materials, and preview the
+  resulting stats, traits and icon in real time
+- Fully reuses Tinkers' Search's UI components, styling and pinyin search
+- Read-only simulation by default: never consumes materials or modifies the Anvil
+- Fully compatible with Tinkers' Construct 3
+
+Whether you are optimizing a new weapon or browsing material combinations,
+Anvil's Search turns the Anvil into a planning workstation.
+'''
+
+[[mods.properties]]
+"mixin.configs" = "anvilssearch.mixins.json"
+
+# ========== 依赖声明 ==========
+
+# 1. Forge
+[[dependencies.anvilssearch]]
+modId="forge"
+mandatory=true
+versionRange="[40,)"
+ordering="NONE"
+side="BOTH"
+
+# 2. Minecraft
+[[dependencies.anvilssearch]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.18.2,1.19)"
+ordering="NONE"
+side="BOTH"
+
+# 3. Tinkers' Search（本体，必须）
+[[dependencies.anvilssearch]]
+modId="tinkerssearch"
+mandatory=true
+versionRange="[1.6,)"
+ordering="AFTER"
+side="BOTH"
+
+# 4. Tinkers' Construct
+[[dependencies.anvilssearch]]
+modId="tconstruct"
+mandatory=true
+versionRange="[3.6,)"
+ordering="AFTER"
+side="BOTH"
+
+# 5. Mantle
+[[dependencies.anvilssearch]]
+modId="mantle"
+mandatory=true
+versionRange="[1.9.45,)"
+ordering="AFTER"
+side="BOTH"
+
+# 6. JEI（可选）
+[[dependencies.anvilssearch]]
+modId="jei"
+mandatory=false
+versionRange="[9,)"
+ordering="NONE"
+side="CLIENT"
