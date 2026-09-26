@@ -246,24 +246,23 @@ public final class ModifierIndex {
                             "toolRequirement", "tools", "toolFilter", "toolIngredient");
 
                     for (int lv = 1; lv <= maxLv; lv++) {
-                        // 每级所需数量 = amountPerInput × 该级所需投入次数
                         int countPerLevel = amountPerInput;
                         if (neededPerLevel > 0 && amountPerInput > 0) {
                             countPerLevel = (int) Math.ceil(
                                     (double) neededPerLevel / amountPerInput);
                         }
 
+                        // ★ 每个基础材料一个格子，count = countPerLevel
                         List<ItemStack> mats = new ArrayList<>();
                         List<Component> matLines = new ArrayList<>();
                         for (ItemStack s : baseMr.icons) {
-                            for (int i = 0; i < countPerLevel; i++) {
-                                ItemStack copy = s.copy();
-                                copy.setCount(1);
-                                mats.add(copy);
+                            ItemStack copy = s.copy();
+                            copy.setCount(countPerLevel);
+                            mats.add(copy);
+                            if (matLines.isEmpty()) {
+                                matLines.add(new TextComponent("\u00A77"
+                                        + s.getHoverName().getString() + " \u00D7" + countPerLevel));
                             }
-                            if (!matLines.isEmpty()) continue;
-                            matLines.add(new TextComponent("\u00A77"
-                                    + s.getHoverName().getString() + " \u00D7" + countPerLevel));
                         }
 
                         Component dn = extractDisplayName(mod, lv);
@@ -273,7 +272,7 @@ public final class ModifierIndex {
                     if (levels.size() > 1) multiCount++;
                 }
 
-                // 分支 4：多个独立 recipe（含 SwappableModifierRecipe）
+                // 分支 4：多个独立 recipe
                 if (levels.isEmpty() && !simpleRecipes.isEmpty()) {
                     simpleRecipes.sort(Comparator.comparing(ModifierIndex::getRecipeId));
 
@@ -320,26 +319,24 @@ public final class ModifierIndex {
         List<Component> lines = new ArrayList<>();
         if (recipe == null) return new MaterialResult(icons, lines);
 
-        // ★ 特殊：IncrementalModifierRecipe 用 input:Ingredient + amountPerInput
+        // 特殊 1：IncrementalModifierRecipe 用单个 input:Ingredient + amountPerInput
         Object inputField = readFieldAny(recipe, "input");
         if (inputField instanceof Ingredient ing) {
             int amount = readIntField(recipe, 1, "amountPerInput", "amount_per_input");
             if (amount < 1) amount = 1;
             ItemStack extracted = firstFromIngredient(ing);
             if (!extracted.isEmpty()) {
-                // 按 amount 展开为 N 个独立图标
-                for (int i = 0; i < amount; i++) {
-                    ItemStack copy = extracted.copy();
-                    copy.setCount(1);
-                    icons.add(copy);
-                }
+                // ★ 一个格子，count = amount
+                ItemStack copy = extracted.copy();
+                copy.setCount(amount);
+                icons.add(copy);
                 lines.add(new TextComponent("\u00A77"
                         + extracted.getHoverName().getString() + " \u00D7" + amount));
                 return new MaterialResult(icons, lines);
             }
         }
 
-        // 通用路径：getInputs() / getDisplayInputs() / 字段 inputs / ingredients
+        // 通用路径
         Object inputsObj = null;
         for (String mn : new String[]{"getInputs", "getDisplayInputs"}) {
             Method m = findMethod(recipe.getClass(), mn);
@@ -374,13 +371,12 @@ public final class ModifierIndex {
             int count = extractCount(sized);
             if (stack.isEmpty()) continue;
 
-            // ★ 按 count 展开为 N 个独立图标（每个 count=1）
-            for (int i = 0; i < count; i++) {
-                ItemStack copy = stack.copy();
-                copy.setCount(1);
-                icons.add(copy);
-            }
+            // ★ 每个 SizedIngredient 一个格子（不跨格子合并），count 保留
+            ItemStack iconCopy = stack.copy();
+            iconCopy.setCount(count);
+            icons.add(iconCopy);
 
+            // 文本仍按物品合并 ×N
             String key;
             try {
                 String regName = stack.getItem().getRegistryName() != null
@@ -601,11 +597,6 @@ public final class ModifierIndex {
         return null;
     }
 
-    /**
-     * ★ 判定配方类型。
-     *   1) 类名含 Incremental / Multilevel
-     *   2) 字段兜底：有 input:Ingredient + amountPerInput:int → INCREMENTAL
-     */
     private static RecipeKind detectKind(Object recipe) {
         Class<?> c = recipe.getClass();
         while (c != null && c != Object.class) {
@@ -615,7 +606,6 @@ public final class ModifierIndex {
                 return RecipeKind.MULTILEVEL;
             c = c.getSuperclass();
         }
-        // 字段兜底
         Object input = readFieldAny(recipe, "input");
         Object amount = readFieldAny(recipe, "amountPerInput", "amount_per_input");
         if (input instanceof Ingredient && amount instanceof Number) {

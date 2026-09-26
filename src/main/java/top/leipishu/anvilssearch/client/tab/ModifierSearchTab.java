@@ -430,12 +430,12 @@ public class ModifierSearchTab implements AnvilTab {
             RenderSystem.enableBlend();
             RenderSystem.defaultBlendFunc();
 
-            drawItemIcon(matIcons[1], t1x, row1Y);
-            drawItemIcon(matIcons[0], t2x, row2Y);
-            drawItemIcon(centerItem, itemX, row2Y);
-            drawItemIcon(matIcons[2], t3x, row2Y);
-            drawItemIcon(matIcons[3], t4x, row3Y);
-            drawItemIcon(matIcons[4], t5x, row3Y);
+            drawItemIcon(ps, matIcons[1], t1x, row1Y);
+            drawItemIcon(ps, matIcons[0], t2x, row2Y);
+            drawItemIcon(ps, centerItem, itemX, row2Y);
+            drawItemIcon(ps, matIcons[2], t3x, row2Y);
+            drawItemIcon(ps, matIcons[3], t4x, row3Y);
+            drawItemIcon(ps, matIcons[4], t5x, row3Y);
         } finally {
             RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
             if (!depthWas) RenderSystem.disableDepthTest();
@@ -633,26 +633,23 @@ public class ModifierSearchTab implements AnvilTab {
         GuiComponent.fill(ps, x + SLOT_SIZE - 1, y, x + SLOT_SIZE, y + SLOT_SIZE, border);
     }
 
-    private void drawItemIcon(ItemStack stack, int x, int y) {
+    private void drawItemIcon(PoseStack ps, ItemStack stack, int x, int y) {
         if (stack == null || stack.isEmpty()) return;
         try {
             Minecraft mc = Minecraft.getInstance();
-            // 1. 正常绘制物品图标
+
+            // ===== 原有：物品图标 + 附魔光效 + 装饰（不动）=====
             mc.getItemRenderer().renderGuiItem(stack, x, y);
+            mc.getItemRenderer().renderGuiItemDecorations(mc.font, stack, x, y, "");
 
-            // 2. 如果物品有附魔光效，手动绘制
-            if (stack.isEnchanted() || stack.hasFoil()) {
-                // 绑定光效纹理
-                RenderSystem.setShaderTexture(0,
-                        new ResourceLocation("textures/misc/enchanted_item_glint.png"));
-                RenderSystem.enableBlend();
-                // 光效的混合模式：颜色值直接叠加
-                RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_COLOR,
-                        GlStateManager.DestFactor.ONE);
-
-                // 用物品图标本身作为光效的"蒙版"
-                // 这里使用物品的GUI模型来绘制光效
-                mc.getItemRenderer().renderGuiItem(stack, x, y);
+            // ===== 新增：右下角数量数字 =====
+            if (stack.getCount() > 1) {
+                String s = String.valueOf(stack.getCount());
+                Font font = mc.font;
+                int tw = font.width(s);
+                int tx = x + SLOT_SIZE - tw - 1;
+                int ty = y + SLOT_SIZE - 8;
+                font.drawShadow(ps, s, tx, ty, 0xFFFFFF);
             }
         } catch (Throwable ignored) {}
     }
