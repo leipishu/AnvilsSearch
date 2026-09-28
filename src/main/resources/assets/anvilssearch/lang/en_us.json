@@ -63,5 +63,8 @@
 
   "gui.anvilssearch.sim.tools_header": "Tools",
   "gui.anvilssearch.sim.parts_header": "Parts",
-  "gui.anvilssearch.sim.preview_header": "Preview"
+  "gui.anvilssearch.sim.preview_header": "Preview",
+  "gui.anvilssearch.slot.none": "No Slot",
+  "gui.anvilssearch.modifier.filter.select_all": "All",
+  "gui.anvilssearch.modifier.filter.clear": "Clear"
 }

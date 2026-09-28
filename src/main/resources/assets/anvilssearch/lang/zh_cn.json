@@ -63,5 +63,8 @@
 
   "gui.anvilssearch.sim.tools_header": "工具",
   "gui.anvilssearch.sim.parts_header": "部件",
-  "gui.anvilssearch.sim.preview_header": "预览"
+  "gui.anvilssearch.sim.preview_header": "预览",
+  "gui.anvilssearch.slot.none": "无槽位",
+  "gui.anvilssearch.modifier.filter.select_all": "全选",
+  "gui.anvilssearch.modifier.filter.clear": "清空"
 }
