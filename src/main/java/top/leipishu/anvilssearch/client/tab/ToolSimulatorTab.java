@@ -16,6 +16,7 @@ import top.leipishu.anvilssearch.client.AnvilPanelAnimation;
 import top.leipishu.anvilssearch.client.AnvilPanelLayout;
 import top.leipishu.anvilssearch.client.AnvilSidebarPanel;
 import top.leipishu.anvilssearch.client.AnvilTab;
+import top.leipishu.anvilssearch.client.theme.AnvilTheme;
 import top.leipishu.anvilssearch.client.widget.MaterialPickerPopup;
 import top.leipishu.anvilssearch.client.widget.PartSlotWidget;
 import top.leipishu.anvilssearch.client.widget.ToolListWidget;
@@ -33,6 +34,8 @@ import java.util.*;
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
 
 public class ToolSimulatorTab implements AnvilTab {
+
+    private static final int COL_HEADER_H = AnvilTheme.HEADER_H;
 
     private final AnvilSidebarPanel panel;
     private final ToolSimulationModel model = new ToolSimulationModel();
@@ -73,9 +76,7 @@ public class ToolSimulatorTab implements AnvilTab {
     @Override public boolean wantsSearchBox() { return false; }
 
     @Override
-    public void onActivate() {
-        popup = null;
-    }
+    public void onActivate() { popup = null; }
 
     @Override
     public List<Component> getPendingTooltip() {
@@ -120,15 +121,39 @@ public class ToolSimulatorTab implements AnvilTab {
         AnvilPanelLayout.ThreeColumn cols = AnvilPanelLayout.computeThreeColumn(
                 contentLeft, contentRight);
 
-        lastMidX = cols.midX - px;
+        lastMidX = cols.midX;
         lastMidW = cols.midW;
 
-        toolList.setBounds(cols.leftX, areaTop, cols.leftW, areaH);
+        // ===== 左：工具列表 section =====
+        drawColSection(ps, font,
+                cols.leftX, areaTop, cols.leftW, areaH,
+                new TranslatableComponent("gui.anvilssearch.sim.tools_header").getString());
+        int lInX = cols.leftX + AnvilTheme.PAD_S;
+        int lInY = areaTop + COL_HEADER_H + AnvilTheme.PAD_XS;
+        int lInW = cols.leftW - AnvilTheme.PAD_S * 2;
+        int lInH = areaH - COL_HEADER_H - AnvilTheme.PAD_XS - AnvilTheme.PAD_S;
+        toolList.setBounds(lInX, lInY, lInW, lInH);
         toolList.render(ps, font, mouseX, mouseY, model.getSelectedTool());
 
-        renderSlots(ps, font, cols.midX, areaTop, cols.midW, areaH, mouseX, mouseY);
+        // ===== 中：部件槽 section =====
+        drawColSection(ps, font,
+                cols.midX, areaTop, cols.midW, areaH,
+                new TranslatableComponent("gui.anvilssearch.sim.parts_header").getString());
+        int mInX = cols.midX + AnvilTheme.PAD_S;
+        int mInY = areaTop + COL_HEADER_H + AnvilTheme.PAD_XS;
+        int mInW = cols.midW - AnvilTheme.PAD_S * 2;
+        int mInH = areaH - COL_HEADER_H - AnvilTheme.PAD_XS - AnvilTheme.PAD_S;
+        renderSlots(ps, font, mInX, mInY, mInW, mInH, mouseX, mouseY);
 
-        previewPanel.setBounds(cols.rightX, areaTop, cols.rightW, areaH);
+        // ===== 右：预览 section =====
+        drawColSection(ps, font,
+                cols.rightX, areaTop, cols.rightW, areaH,
+                new TranslatableComponent("gui.anvilssearch.sim.preview_header").getString());
+        int rInX = cols.rightX + AnvilTheme.PAD_S;
+        int rInY = areaTop + COL_HEADER_H + AnvilTheme.PAD_XS;
+        int rInW = cols.rightW - AnvilTheme.PAD_S * 2;
+        int rInH = areaH - COL_HEADER_H - AnvilTheme.PAD_XS - AnvilTheme.PAD_S;
+        previewPanel.setBounds(rInX, rInY, rInW, rInH);
         previewPanel.render(ps, font, model, cardDetails, mouseX, mouseY);
 
         List<Component> tip = previewPanel.getPendingTooltip();
@@ -139,16 +164,26 @@ public class ToolSimulatorTab implements AnvilTab {
         if (popup != null) popup.render(ps, font, mouseX, mouseY);
     }
 
+    /** 统一栏：section 底 + 顶部 header 条。 */
+    private static void drawColSection(PoseStack ps, Font font,
+                                       int x, int y, int w, int h, String label) {
+        AnvilTheme.section(ps, x, y, w, h);
+        GuiComponent.fill(ps, x + 1, y + 1, x + w - 1, y + COL_HEADER_H,
+                AnvilTheme.SECTION_HEADER_BG);
+        GuiComponent.fill(ps, x + 1, y + COL_HEADER_H,
+                x + w - 1, y + COL_HEADER_H + 1, AnvilTheme.SECTION_BORDER);
+        font.draw(ps, "\u00A76" + label, x + AnvilTheme.PAD_M,
+                AnvilTheme.centeredTextY(y, COL_HEADER_H, font), 0xFFFFFF);
+    }
+
     private void renderSlots(PoseStack ps, Font font,
                              int x, int y, int w, int h,
                              int mouseX, int mouseY) {
-        GuiComponent.fill(ps, x, y, x + w, y + h, 0xFF181818);
-        GuiComponent.fill(ps, x, y, x + w, y + 1, 0xFF333333);
 
         if (model.getSelectedTool() == null) {
-            font.draw(ps, "\u00A77" + new TranslatableComponent(
+            font.draw(ps, new TranslatableComponent(
                             "gui.anvilssearch.sim.pick_tool").getString(),
-                    x + 4, y + 4, 0x666666);
+                    x + 4, y + 4, AnvilTheme.TEXT_DIM);
             return;
         }
 
@@ -156,26 +191,26 @@ public class ToolSimulatorTab implements AnvilTab {
 
         int totalH = 0;
         for (int i = 0; i < slotWidgets.size(); i++) {
-            totalH += PartSlotWidget.HEIGHT + 4;
+            totalH += PartSlotWidget.HEIGHT + AnvilTheme.CARD_GAP;
         }
 
-        int areaH = h - 4;
+        int areaH = h - AnvilTheme.PAD_XS;
         midMaxScrollOffset = Math.max(0, totalH - areaH + 12);
         if (midScrollOffset > midMaxScrollOffset) midScrollOffset = midMaxScrollOffset;
 
-        int areaW = w - 4 - (midMaxScrollOffset > 0
+        int areaW = w - (midMaxScrollOffset > 0
                 ? SCROLL_BAR_WIDTH + SCROLL_BAR_PADDING : 0);
 
-        boolean scissorOk = ScissorHelper.enableScissor(x + 2, y + 2, areaW, areaH);
+        boolean scissorOk = ScissorHelper.enableScissor(x, y, areaW, areaH);
         try {
             if (scissorOk) RenderSystem.disableDepthTest();
 
-            int sy = y + 4 - midScrollOffset;
+            int sy = y - midScrollOffset;
             for (int i = 0; i < slotWidgets.size(); i++) {
                 PartSlotWidget slot = slotWidgets.get(i);
-                slot.setBounds(x + 4, sy);
+                slot.setBounds(x, sy);
                 slot.render(ps, font, mouseX, mouseY);
-                sy += PartSlotWidget.HEIGHT + 4;
+                sy += PartSlotWidget.HEIGHT + AnvilTheme.CARD_GAP;
             }
         } finally {
             if (scissorOk) {
@@ -186,7 +221,7 @@ public class ToolSimulatorTab implements AnvilTab {
 
         if (midMaxScrollOffset > 0) {
             midScrollBar.setBounds(x + w - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING,
-                    y + 2, SCROLL_BAR_WIDTH, areaH);
+                    y, SCROLL_BAR_WIDTH, areaH);
             midScrollBar.setRange(midScrollOffset, midMaxScrollOffset);
             midScrollBar.render(ps, mouseX, mouseY);
         }
@@ -236,14 +271,15 @@ public class ToolSimulatorTab implements AnvilTab {
         if (toolList.mouseClicked(mx, my, button)) return true;
 
         if (mx >= lastMidX && mx <= lastMidX + lastMidW) {
-            int sy = lastAreaTop + 4 - midScrollOffset;
+            int sy = lastAreaTop + COL_HEADER_H + AnvilTheme.PAD_XS
+                    + AnvilTheme.PAD_S - midScrollOffset;
             for (int i = 0; i < slotWidgets.size(); i++) {
                 if (my >= sy && my <= sy + PartSlotWidget.HEIGHT) {
                     if (button == 1) toggleCard(i);
                     else             openPickerFor(slotWidgets.get(i), i);
                     return true;
                 }
-                sy += PartSlotWidget.HEIGHT + 4;
+                sy += PartSlotWidget.HEIGHT + AnvilTheme.CARD_GAP;
             }
         }
         return false;

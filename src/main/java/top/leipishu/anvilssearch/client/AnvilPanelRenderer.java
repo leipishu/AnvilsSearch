@@ -5,7 +5,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiComponent;
-import net.minecraft.network.chat.Component;
+import top.leipishu.anvilssearch.client.theme.AnvilTheme;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
@@ -27,7 +27,7 @@ public class AnvilPanelRenderer {
     public void render(AnvilSidebarPanel p, PoseStack ps,
                        int mouseX, int mouseY, float pt) {
 
-        p.clearPendingTooltip();     // ★ 每帧清空
+        p.clearPendingTooltip();
         ScissorHelper.reset();
 
         if (!p.isVisible() && !p.isAnimating()) return;
@@ -50,7 +50,9 @@ public class AnvilPanelRenderer {
             return;
         }
 
-        GuiComponent.fill(ps, px, py, px + pw, py + ph, 0xFF1A1A1A);
+        // 面板底
+        AnvilTheme.panelBg(ps, px, py, pw, ph);
+        // 外框
         GuiComponent.fill(ps, px, py, px + 1, py + ph, 0x33FFFFFF);
         GuiComponent.fill(ps, px + pw - 1, py, px + pw, py + ph, 0x22FFFFFF);
         GuiComponent.fill(ps, px, py, px + pw, py + 1, 0x22FFFFFF);
@@ -72,13 +74,13 @@ public class AnvilPanelRenderer {
 
         active.renderContent(ps, font, mouseX, mouseY, pt,
                 px, py, pw, ph, contentTop, contentBottom);
-
-        // ★ depth test 交给外层（AnvilsSearch）控制，这里不恢复
-        // 外层在渲染完 tooltip 后再 enableDepthTest
     }
 
     private void renderTitleBar(PoseStack ps, int px, int py, int pw, Font font) {
-        GuiComponent.fill(ps, px + 1, py + 1, px + pw - 2, py + TITLE_BAR_HEIGHT, 0xFF2A2A2A);
+        GuiComponent.fill(ps, px + 1, py + 1, px + pw - 2, py + TITLE_BAR_HEIGHT,
+                AnvilTheme.SECTION_HEADER_BG);
+        GuiComponent.fill(ps, px + 1, py + TITLE_BAR_HEIGHT - 1,
+                px + pw - 2, py + TITLE_BAR_HEIGHT, AnvilTheme.SECTION_BORDER);
         font.draw(ps, "\u00A76Anvil's Search", px + 5, py + 5, 0xFFFFFF);
     }
 
@@ -110,24 +112,9 @@ public class AnvilPanelRenderer {
             boolean isHover  = mouseX >= tx && mouseX <= tx + tw
                     && mouseY >= ty && mouseY <= ty + th;
 
-            int bg;
-            if (isActive)      bg = 0xFF6A5030;
-            else if (isHover)  bg = 0xFF4E4028;
-            else               bg = 0xFF3A3020;
-
-            GuiComponent.fill(ps, tx, ty, tx + tw, ty + th, bg);
-            if (isActive) {
-                GuiComponent.fill(ps, tx, ty + th - 1, tx + tw, ty + th, 0xFFFFAA00);
-            }
-
-            Component label = tabs.get(i).getLabel();
-            String s = label.getString();
-            int textW = font.width(s);
-            int color = isActive ? 0xFFFFDD77 : (isHover ? 0xFFDDBB55 : 0xFFAA8844);
-            font.draw(ps, s,
-                    tx + (tw - textW) / 2,
-                    ty + (th - font.lineHeight) / 2 + 1,
-                    color);
+            String label = tabs.get(i).getLabel().getString();
+            // ★ Tab 按钮：无边框
+            AnvilTheme.tabButton(ps, font, tx, ty, tw, th, label, isHover, isActive);
         }
     }
 
@@ -143,7 +130,8 @@ public class AnvilPanelRenderer {
         box.render(ps, mouseX, mouseY, font);
 
         int lineY = boxY + boxH + 2;
-        GuiComponent.fill(ps, px + 5, lineY, px + pw - 5, lineY + 1, 0xFF333333);
+        GuiComponent.fill(ps, px + 5, lineY, px + pw - 5, lineY + 1,
+                AnvilTheme.SECTION_BORDER);
     }
 
     public boolean handleMouseClicked(AnvilSidebarPanel p,

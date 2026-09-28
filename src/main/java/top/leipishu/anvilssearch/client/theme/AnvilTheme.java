@@ -129,7 +129,10 @@ public final class AnvilTheme {
         GuiComponent.fill(ps, x + size - 1, y, x + size, y + size, border);
     }
 
-    /** 通用按钮：底 + 边框 + 居中文字 + active 底部金线。 */
+    /**
+     * 通用按钮：底 + 边框 + 居中文字 + active 底部金线。
+     * 用于内容区（筛选栏、收藏、槽位下拉等）。
+     */
     public static void button(PoseStack ps, Font font, int x, int y, int w, int h,
                               String label, boolean hover, boolean active) {
         int bg = active ? BTN_BG_ACTIVE : (hover ? BTN_BG_HOVER : BTN_BG);
@@ -140,6 +143,23 @@ public final class AnvilTheme {
         GuiComponent.fill(ps, x + w - 1, y, x + w, y + h, BTN_BORDER);
         if (active) {
             GuiComponent.fill(ps, x + 1, y + h - 2, x + w - 1, y + h - 1, ACCENT);
+        }
+        int textColor = active ? BTN_TEXT_ACTIVE : (hover ? BTN_TEXT_HOVER : BTN_TEXT);
+        int tw = font.width(label);
+        font.draw(ps, label, x + (w - tw) / 2,
+                y + (h - font.lineHeight) / 2 + 1, textColor);
+    }
+
+    /**
+     * Tab 栏专用按钮：无边框，仅背景 + 文字 + active 底部 2px 金线。
+     * 视觉更干净，避免与内容区的 bordered 按钮混淆。
+     */
+    public static void tabButton(PoseStack ps, Font font, int x, int y, int w, int h,
+                                 String label, boolean hover, boolean active) {
+        int bg = active ? BTN_BG_ACTIVE : (hover ? BTN_BG_HOVER : BTN_BG);
+        GuiComponent.fill(ps, x, y, x + w, y + h, bg);
+        if (active) {
+            GuiComponent.fill(ps, x, y + h - 2, x + w, y + h, ACCENT);
         }
         int textColor = active ? BTN_TEXT_ACTIVE : (hover ? BTN_TEXT_HOVER : BTN_TEXT);
         int tw = font.width(label);

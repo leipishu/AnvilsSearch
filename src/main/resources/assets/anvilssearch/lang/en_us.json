@@ -59,5 +59,9 @@
   "gui.anvilssearch.slot.ability": "Ability",
   "gui.anvilssearch.slot.defense": "Defense",
   "gui.anvilssearch.slot.soul": "Soul",
-  "gui.anvilssearch.slot.unknown": "Unknown"
+  "gui.anvilssearch.slot.unknown": "Unknown",
+
+  "gui.anvilssearch.sim.tools_header": "Tools",
+  "gui.anvilssearch.sim.parts_header": "Parts",
+  "gui.anvilssearch.sim.preview_header": "Preview"
 }

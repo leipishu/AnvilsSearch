@@ -59,5 +59,9 @@
   "gui.anvilssearch.slot.ability": "能力",
   "gui.anvilssearch.slot.defense": "防御",
   "gui.anvilssearch.slot.soul": "灵魂",
-  "gui.anvilssearch.slot.unknown": "未知"
+  "gui.anvilssearch.slot.unknown": "未知",
+
+  "gui.anvilssearch.sim.tools_header": "工具",
+  "gui.anvilssearch.sim.parts_header": "部件",
+  "gui.anvilssearch.sim.preview_header": "预览"
 }

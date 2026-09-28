@@ -17,10 +17,10 @@ import org.lwjgl.opengl.GL11;
 import top.leipishu.anvilssearch.client.AnvilPanelAnimation;
 import top.leipishu.anvilssearch.client.AnvilSidebarPanel;
 import top.leipishu.anvilssearch.client.AnvilTab;
+import top.leipishu.anvilssearch.client.theme.AnvilTheme;
 import top.leipishu.anvilssearch.data.AnvilSlotAccess;
 import top.leipishu.anvilssearch.data.FavoritesStore;
 import top.leipishu.anvilssearch.data.ModifierIndex;
-import top.leipishu.tinkerssearch.client.gui.components.CardBackground;
 import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
@@ -41,27 +41,20 @@ import static top.leipishu.tinkerssearch.config.PanelConfig.*;
 
 public class ModifierSearchTab implements AnvilTab {
 
-    // ===== 行高（★ 精致化：提高）=====
-    private static final int ROW_H     = 16;
-    private static final int SUB_ROW_H = 14;
-    private static final int SEARCH_H  = 16;
-    private static final int FILTER_H  = 14;
+    // ===== 使用统一主题尺寸 =====
+    private static final int ROW_H     = AnvilTheme.ROW_H;      // 18
+    private static final int SUB_ROW_H = AnvilTheme.SUB_ROW_H;  // 16
+    private static final int LINE_H    = AnvilTheme.LINE_H;     // 12
+    private static final int CARD_GAP  = AnvilTheme.CARD_GAP;   // 6
+    private static final int SLOT_SIZE = AnvilTheme.SLOT_SIZE;  // 18
+    private static final int SLOT_GAP  = AnvilTheme.SLOT_GAP;   // 3
 
-    // ===== 配方矩阵 =====
-    private static final int SLOT_SIZE = 16;
-    private static final int SLOT_GAP  = 2;
+    private static final int SEARCH_H = 16;
+    private static final int FILTER_H = 16;
 
-    // ===== 卡片（★ 精致化：更高、更松）=====
-    private static final int LINE_H     = 12;
-    private static final int CARD_GAP   = 6;
-    private static final int CARD_PAD_X = 8;
-    private static final int CARD_PAD_Y = 8;
-
-    // ===== 星标 =====
-    private static final int STAR_W      = 12;
-    private static final int STAR_BTN_W  = 14;
-
-    private static final int ACCENT_GOLD = 0xFFFFAA00;
+    // 星标
+    private static final int STAR_W     = 12;
+    private static final int STAR_BTN_W = 16;
 
     private final AnvilSidebarPanel panel;
 
@@ -280,32 +273,36 @@ public class ModifierSearchTab implements AnvilTab {
     private void renderLeft(PoseStack ps, Font font,
                             int x, int y, int w, int h,
                             int mouseX, int mouseY) {
-        GuiComponent.fill(ps, x, y, x + w, y + h, 0xFF181818);
-        GuiComponent.fill(ps, x, y, x + w, y + 1, 0xFF333333);
+        // ★ 统一 section
+        AnvilTheme.section(ps, x, y, w, h);
+
+        int pad = AnvilTheme.PAD_S;
+        int innerX = x + pad;
+        int innerW = w - pad * 2;
 
         // 搜索框
-        searchBox.setBounds(x + 3, y + 3, w - 6, SEARCH_H);
+        searchBox.setBounds(innerX, y + pad, innerW, SEARCH_H);
         searchBox.render(ps, mouseX, mouseY, font);
 
         // 筛选栏
-        int filterY = y + 3 + SEARCH_H + 3;
+        int filterY = y + pad + SEARCH_H + 3;
         filterBarY = filterY;
-        renderFilterBar(ps, font, x + 3, filterY, w - 6, mouseX, mouseY);
+        renderFilterBar(ps, font, innerX, filterY, innerW, mouseX, mouseY);
 
         // 列表
         int listTop = filterY + FILTER_H + 3;
-        int listH = h - (listTop - y) - 2;
-        int listW = w - 4;
+        int listH = (y + h) - listTop - pad;
+        int listW = innerW;
 
-        leftListX = x + 2;
+        leftListX = innerX;
         leftListTop = listTop;
         leftListW = listW;
         leftListH = listH;
 
         if (filtered.isEmpty()) {
-            font.draw(ps, "\u00A77" + new TranslatableComponent(
+            font.draw(ps, new TranslatableComponent(
                             "gui.anvilssearch.modifier.empty").getString(),
-                    x + 4, listTop + 4, 0x666666);
+                    innerX + 2, listTop + 4, AnvilTheme.TEXT_DIM);
             return;
         }
 
@@ -323,7 +320,7 @@ public class ModifierSearchTab implements AnvilTab {
         int scrollBarW = maxScrollOffset > 0 ? SCROLL_BAR_WIDTH + SCROLL_BAR_PADDING : 0;
         int clipW = listW - scrollBarW;
 
-        boolean scissorOk = ScissorHelper.enableScissor(x + 2, listTop, clipW, listH);
+        boolean scissorOk = ScissorHelper.enableScissor(innerX, listTop, clipW, listH);
         try {
             if (scissorOk) RenderSystem.disableDepthTest();
 
@@ -333,7 +330,7 @@ public class ModifierSearchTab implements AnvilTab {
                 boolean multi = !inc && e.levels.size() > 1;
                 boolean expanded = multi && expandedInList.contains(e.id);
 
-                drawEntryRow(ps, font, x + 2, rowY, clipW, e,
+                drawEntryRow(ps, font, innerX, rowY, clipW, e,
                         multi, expanded, inc,
                         selected == e && selectedLevel == 0,
                         mouseX, mouseY);
@@ -341,7 +338,7 @@ public class ModifierSearchTab implements AnvilTab {
 
                 if (expanded) {
                     for (ModifierIndex.LevelInfo li : e.levels) {
-                        drawSubRow(ps, font, x + 2, rowY, clipW, e, li,
+                        drawSubRow(ps, font, innerX, rowY, clipW, e, li,
                                 selected == e && selectedLevel == li.level,
                                 mouseX, mouseY);
                         rowY += SUB_ROW_H;
@@ -363,33 +360,21 @@ public class ModifierSearchTab implements AnvilTab {
         }
     }
 
+    // ============================================================
+    // ===== 筛选栏（★ 统一按钮样式）==============================
+    // ============================================================
+
     private void renderFilterBar(PoseStack ps, Font font,
                                  int x, int y, int w,
                                  int mouseX, int mouseY) {
-        // ★ 收藏开关
+        // 收藏开关
         boolean starHover = mouseX >= x && mouseX <= x + STAR_BTN_W
                 && mouseY >= y && mouseY <= y + FILTER_H;
-        int starBg = favoritesOnly ? 0xFF6A5030
-                : (starHover ? 0xFF3A3020 : 0xFF2A2A2A);
-        GuiComponent.fill(ps, x, y, x + STAR_BTN_W, y + FILTER_H, starBg);
-        GuiComponent.fill(ps, x, y, x + STAR_BTN_W, y + 1, 0xFF555555);
-        GuiComponent.fill(ps, x, y + FILTER_H - 1, x + STAR_BTN_W, y + FILTER_H, 0xFF555555);
-        GuiComponent.fill(ps, x, y, x + 1, y + FILTER_H, 0xFF555555);
-        GuiComponent.fill(ps, x + STAR_BTN_W - 1, y, x + STAR_BTN_W, y + FILTER_H, 0xFF555555);
-        if (favoritesOnly) {
-            GuiComponent.fill(ps, x + 1, y + FILTER_H - 2,
-                    x + STAR_BTN_W - 1, y + FILTER_H - 1, ACCENT_GOLD);
-        }
+        String starLabel = favoritesOnly ? "\u2605" : "\u2606";
+        AnvilTheme.button(ps, font, x, y, STAR_BTN_W, FILTER_H,
+                starLabel, starHover, favoritesOnly);
 
-        String star = "\u2605";
-        int starTextW = font.width(star);
-        font.draw(ps, star,
-                x + (STAR_BTN_W - starTextW) / 2,
-                y + (FILTER_H - font.lineHeight) / 2 + 1,
-                favoritesOnly ? 0xFFFFDD77
-                        : (starHover ? 0xFFAAAAAA : 0xFF666666));
-
-        // ★ 槽位按钮
+        // 槽位按钮
         int slotBtnX = x + STAR_BTN_W + 2;
         int slotBtnW = w - STAR_BTN_W - 2;
         if (slotBtnW < 10) return;
@@ -397,19 +382,6 @@ public class ModifierSearchTab implements AnvilTab {
         boolean slotHover = mouseX >= slotBtnX && mouseX <= slotBtnX + slotBtnW
                 && mouseY >= y && mouseY <= y + FILTER_H;
         boolean slotActive = !slotFilter.isEmpty();
-        int slotBg = slotActive ? 0xFF6A5030
-                : (slotHover ? 0xFF3A3020 : 0xFF2A2A2A);
-        GuiComponent.fill(ps, slotBtnX, y, slotBtnX + slotBtnW, y + FILTER_H, slotBg);
-        GuiComponent.fill(ps, slotBtnX, y, slotBtnX + slotBtnW, y + 1, 0xFF555555);
-        GuiComponent.fill(ps, slotBtnX, y + FILTER_H - 1,
-                slotBtnX + slotBtnW, y + FILTER_H, 0xFF555555);
-        GuiComponent.fill(ps, slotBtnX, y, slotBtnX + 1, y + FILTER_H, 0xFF555555);
-        GuiComponent.fill(ps, slotBtnX + slotBtnW - 1, y,
-                slotBtnX + slotBtnW, y + FILTER_H, 0xFF555555);
-        if (slotActive) {
-            GuiComponent.fill(ps, slotBtnX + 1, y + FILTER_H - 2,
-                    slotBtnX + slotBtnW - 1, y + FILTER_H - 1, ACCENT_GOLD);
-        }
 
         String label;
         if (slotActive) {
@@ -420,53 +392,45 @@ public class ModifierSearchTab implements AnvilTab {
             label = new TranslatableComponent(
                     "gui.anvilssearch.modifier.filter.slots").getString();
         }
-        int labelW = font.width(label);
-        if (labelW > slotBtnW - 6) {
+        // 宽度裁剪
+        if (font.width(label) > slotBtnW - 6) {
             label = font.plainSubstrByWidth(label, slotBtnW - 10) + "...";
-            labelW = font.width(label);
         }
-        font.draw(ps, label,
-                slotBtnX + (slotBtnW - labelW) / 2,
-                y + (FILTER_H - font.lineHeight) / 2 + 1,
-                slotActive ? 0xFFFFDD77
-                        : (slotHover ? 0xFFFFFFFF : 0xFFAAAAAA));
+        AnvilTheme.button(ps, font, slotBtnX, y, slotBtnW, FILTER_H,
+                label, slotHover, slotActive);
     }
 
     private void renderSlotDropdown(PoseStack ps, Font font,
                                     int mouseX, int mouseY) {
         if (slotTypes.isEmpty()) return;
 
-        int itemH = 14;
-        int w = Math.min(96, leftListW);
-        int h = slotTypes.size() * itemH + 6;
+        int itemH = 16;
+        int w = Math.min(110, leftListW);
+        int h = slotTypes.size() * itemH + 8;
 
         int x = leftListX;
         int y = filterBarY + FILTER_H + 2;
 
-        GuiComponent.fill(ps, x, y, x + w, y + h, 0xFF1E1E1E);
-        GuiComponent.fill(ps, x, y, x + w, y + 1, 0xFF666666);
-        GuiComponent.fill(ps, x, y + h - 1, x + w, y + h, 0xFF666666);
-        GuiComponent.fill(ps, x, y, x + 1, y + h, 0xFF666666);
-        GuiComponent.fill(ps, x + w - 1, y, x + w, y + h, 0xFF666666);
+        // ★ 用卡片底
+        AnvilTheme.cardBg(ps, x, y, w, h, 0);
 
-        int cy = y + 3;
+        int cy = y + 4;
         for (String type : slotTypes) {
             boolean hover = mouseX >= x + 1 && mouseX <= x + w - 1
                     && mouseY >= cy && mouseY <= cy + itemH;
             if (hover) {
-                GuiComponent.fill(ps, x + 1, cy, x + w - 1, cy + itemH, 0x22FFFFFF);
+                GuiComponent.fill(ps, x + 1, cy, x + w - 1, cy + itemH,
+                        AnvilTheme.ROW_HOVER);
             }
             boolean checked = slotFilter.contains(type);
             String box = checked ? "\u2611" : "\u2610";
-            font.draw(ps, box, x + 4,
-                    cy + (itemH - font.lineHeight) / 2 + 1,
-                    checked ? ACCENT_GOLD : 0xFF888888);
+            int textY = AnvilTheme.centeredTextY(cy, itemH, font);
+            font.draw(ps, box, x + 6, textY,
+                    checked ? AnvilTheme.ACCENT : AnvilTheme.TEXT_MUTED);
 
-            Component label = new TranslatableComponent(
-                    "gui.anvilssearch.slot." + type);
-            font.draw(ps, label, x + 18,
-                    cy + (itemH - font.lineHeight) / 2 + 1,
-                    checked ? 0xFFFFFFFF : 0xFFAAAAAA);
+            Component lbl = new TranslatableComponent("gui.anvilssearch.slot." + type);
+            font.draw(ps, lbl, x + 20, textY,
+                    checked ? AnvilTheme.TEXT_PRIMARY : AnvilTheme.TEXT_SECONDARY);
 
             cy += itemH;
         }
@@ -478,7 +442,7 @@ public class ModifierSearchTab implements AnvilTab {
     }
 
     // ============================================================
-    // ===== 列表行渲染（★ 精致化：星标 + 垂直居中）=====
+    // ===== 列表行（★ 统一 Theme）================================
     // ============================================================
 
     private void drawEntryRow(PoseStack ps, Font font,
@@ -488,22 +452,19 @@ public class ModifierSearchTab implements AnvilTab {
         boolean hover = mouseX >= x && mouseX <= x + clipW
                 && mouseY >= y && mouseY <= y + ROW_H;
 
-        if (sel || hover) {
-            GuiComponent.fill(ps, x, y, x + clipW, y + ROW_H,
-                    sel ? 0x44FFAA00 : 0x22FFFFFF);
-        }
+        AnvilTheme.row(ps, x, y, clipW, ROW_H, hover, sel);
 
-        int textY = y + (ROW_H - font.lineHeight) / 2 + 1;
+        int textY = AnvilTheme.centeredTextY(y, ROW_H, font);
 
-        // ★ 星标
+        // 星标
         boolean fav = FavoritesStore.isFavorite(e.id);
         String star = fav ? "\u2605" : "\u2606";
         int starX = x + 3;
         boolean starHover = mouseX >= starX - 1 && mouseX <= starX + STAR_W + 1
                 && mouseY >= y && mouseY <= y + ROW_H;
         font.draw(ps, star, starX, textY,
-                fav ? ACCENT_GOLD
-                        : (starHover ? 0xFFAAAAAA : 0xFF666666));
+                fav ? AnvilTheme.ACCENT
+                        : (starHover ? AnvilTheme.TEXT_MUTED : AnvilTheme.TEXT_DIM));
 
         // 右侧标记
         String right = "";
@@ -513,7 +474,7 @@ public class ModifierSearchTab implements AnvilTab {
 
         if (incremental && !e.levels.isEmpty()) {
             String icon = "\u26A1";
-            right = "\u00A7e" + icon;
+            right = icon;
             rightW = font.width(icon) + 3;
             rightX = x + clipW - rightW - 2;
             isIconLightning = true;
@@ -523,7 +484,7 @@ public class ModifierSearchTab implements AnvilTab {
             rightX = x + clipW - rightW - 2;
         }
 
-        int textX = starX + STAR_W + 3;
+        int textX = starX + STAR_W + 4;
         int maxNameW = clipW - (textX - x) - 6 - rightW;
 
         String name;
@@ -537,10 +498,12 @@ public class ModifierSearchTab implements AnvilTab {
                 : name;
 
         font.draw(ps, display, textX, textY,
-                sel ? 0xFFFFDD77 : (hover ? 0xFFFFFF : e.color));
+                sel ? AnvilTheme.ACCENT_SOFT
+                        : (hover ? AnvilTheme.TEXT_PRIMARY : e.color));
 
         if (rightW > 0) {
-            font.draw(ps, right, rightX, textY, 0xCCCCCC);
+            font.draw(ps, right, rightX, textY,
+                    isIconLightning ? AnvilTheme.ACCENT_SOFT : AnvilTheme.TEXT_MUTED);
         }
 
         if (isIconLightning && rightX >= 0) {
@@ -565,9 +528,9 @@ public class ModifierSearchTab implements AnvilTab {
                             boolean sel, int mouseX, int mouseY) {
         boolean hover = mouseX >= x && mouseX <= x + clipW
                 && mouseY >= y && mouseY <= y + SUB_ROW_H;
-        if (sel || hover) {
-            GuiComponent.fill(ps, x, y, x + clipW, y + SUB_ROW_H,
-                    sel ? 0x44FFAA00 : 0x1AFFFFFF);
+        AnvilTheme.row(ps, x, y, clipW, SUB_ROW_H, hover, sel);
+        if (sel) {
+            AnvilTheme.rowAccentBar(ps, x, y, SUB_ROW_H, AnvilTheme.ACCENT);
         }
 
         String name = li.displayName.getString();
@@ -575,9 +538,10 @@ public class ModifierSearchTab implements AnvilTab {
                 ? font.plainSubstrByWidth(name, clipW - 30) + "..."
                 : name;
 
-        int textY = y + (SUB_ROW_H - font.lineHeight) / 2 + 1;
+        int textY = AnvilTheme.centeredTextY(y, SUB_ROW_H, font);
         font.draw(ps, display, x + 20, textY,
-                sel ? 0xFFFFDD77 : (hover ? 0xFFFFFF : e.color));
+                sel ? AnvilTheme.ACCENT_SOFT
+                        : (hover ? AnvilTheme.TEXT_PRIMARY : e.color));
     }
 
     // ============================================================
@@ -587,14 +551,14 @@ public class ModifierSearchTab implements AnvilTab {
     private void renderRight(PoseStack ps, Font font,
                              int x, int y, int w, int h,
                              int mouseX, int mouseY) {
-        GuiComponent.fill(ps, x, y, x + w, y + h, 0xFF181818);
-        GuiComponent.fill(ps, x, y, x + w, y + 1, 0xFF333333);
+        // ★ 统一 section
+        AnvilTheme.section(ps, x, y, w, h);
 
         int size = SLOT_SIZE;
-        int gap = SLOT_GAP;
+        int gap  = SLOT_GAP;
         int midX = x + w / 2;
 
-        int row1Y = y + 6;
+        int row1Y = y + 8;
         int row2Y = row1Y + size + gap + 2;
         int row3Y = row2Y + size + gap + 2;
 
@@ -610,6 +574,7 @@ public class ModifierSearchTab implements AnvilTab {
 
         ItemStack centerItem = AnvilSlotAccess.getCenterItem();
 
+        // 槽位坐标
         int t1x = midX - size / 2;
         int t2x = midX - size / 2 - size - gap;
         int itemX = midX - size / 2;
@@ -653,8 +618,8 @@ public class ModifierSearchTab implements AnvilTab {
             else          RenderSystem.disableDepthTest();
         }
 
-        int infoTop = row3Y + size + 8;
-        int infoH = y + h - infoTop - 4;
+        int infoTop = row3Y + size + 10;
+        int infoH = (y + h) - infoTop - AnvilTheme.PAD_S;
 
         rightAreaX = x + 2;
         rightAreaY = infoTop;
@@ -662,16 +627,16 @@ public class ModifierSearchTab implements AnvilTab {
         rightAreaH = infoH;
 
         if (selected == null || selLi == null) {
-            font.draw(ps, "\u00A77" + new TranslatableComponent(
+            font.draw(ps, new TranslatableComponent(
                             "gui.anvilssearch.modifier.pick_hint").getString(),
-                    x + 6, infoTop + 4, 0x666666);
+                    x + AnvilTheme.PAD_M, infoTop + 4, AnvilTheme.TEXT_DIM);
             return;
         }
 
-        int maxTextW = w - 8 - 14;
+        int maxTextW = w - AnvilTheme.PAD_L * 2 - 14;
         List<Card> cards = new ArrayList<>();
 
-        // 标题
+        // 标题：居中、粗体、强化颜色、无框
         String titleText;
         try {
             titleText = selLi.displayName.getString();
@@ -713,7 +678,7 @@ public class ModifierSearchTab implements AnvilTab {
             c2.add(new TextComponent("\u00A78" + new TranslatableComponent(
                     "gui.anvilssearch.modifier.no_recipe").getString()));
         }
-        cards.add(new Card(0xFF55FFFF, null, c2));
+        cards.add(new Card(AnvilTheme.ACCENT_CYAN, null, c2));
 
         // 卡片 2：描述
         List<Component> c3 = new ArrayList<>();
@@ -726,7 +691,7 @@ public class ModifierSearchTab implements AnvilTab {
                 c3.addAll(wrapComponent(font, d, maxTextW));
             }
         }
-        cards.add(new Card(ACCENT_GOLD,
+        cards.add(new Card(AnvilTheme.ACCENT,
                 "\u00A7e" + new TranslatableComponent(
                         "gui.anvilssearch.modifier.description").getString(),
                 c3));
@@ -744,7 +709,8 @@ public class ModifierSearchTab implements AnvilTab {
             if (sOk) RenderSystem.disableDepthTest();
             int cy = afterTitleY - rightScrollOffset;
             for (Card card : cards) {
-                cy = drawCard(ps, font, x + 4, cy, w - 8, card);
+                cy = drawCard(ps, font, x + AnvilTheme.PAD_S, cy,
+                        w - AnvilTheme.PAD_S * 2, card);
             }
         } finally {
             if (sOk) {
@@ -785,9 +751,8 @@ public class ModifierSearchTab implements AnvilTab {
         }
     }
 
-    // ★ 精致化：更大内边距 + 更高行高
     private static int measureCard(Card card) {
-        int h = CARD_PAD_Y * 2;
+        int h = AnvilTheme.CARD_PAD * 2;
         if (card.title != null) h += LINE_H + 4;
         h += card.lines.size() * LINE_H;
         return h + CARD_GAP;
@@ -796,18 +761,16 @@ public class ModifierSearchTab implements AnvilTab {
     private static int drawCard(PoseStack ps, Font font,
                                 int x, int y, int w, Card card) {
         int cardH = measureCard(card) - CARD_GAP;
-        CardBackground.draw(ps, x, y, w, cardH, 0xFF1E1E1E, 0xFF3A3A3A);
+        AnvilTheme.cardBg(ps, x, y, w, cardH, card.accent);
 
-        // ★ 左侧强调条
-        GuiComponent.fill(ps, x, y, x + 2, y + cardH, 0xFF000000 | card.accent);
-
-        int cy = y + CARD_PAD_Y;
+        int cy = y + AnvilTheme.CARD_PAD;
         if (card.title != null) {
-            font.draw(ps, card.title, x + CARD_PAD_X + 2, cy, card.accent);
+            font.draw(ps, card.title, x + AnvilTheme.CARD_PAD + 2, cy, card.accent);
             cy += LINE_H + 4;
         }
         for (Component line : card.lines) {
-            font.draw(ps, line, x + CARD_PAD_X + 2, cy, 0xCCCCCC);
+            font.draw(ps, line, x + AnvilTheme.CARD_PAD + 2, cy,
+                    AnvilTheme.TEXT_SECONDARY);
             cy += LINE_H;
         }
         return y + cardH + CARD_GAP;
@@ -841,13 +804,7 @@ public class ModifierSearchTab implements AnvilTab {
     private void drawSlotBg(PoseStack ps, int x, int y, int mouseX, int mouseY) {
         boolean hover = mouseX >= x && mouseX <= x + SLOT_SIZE
                 && mouseY >= y && mouseY <= y + SLOT_SIZE;
-        int bg = hover ? 0xFF3A3A3A : 0xFF222222;
-        int border = hover ? 0xFFAA8844 : 0xFF555555;
-        GuiComponent.fill(ps, x, y, x + SLOT_SIZE, y + SLOT_SIZE, bg);
-        GuiComponent.fill(ps, x, y, x + SLOT_SIZE, y + 1, border);
-        GuiComponent.fill(ps, x, y + SLOT_SIZE - 1, x + SLOT_SIZE, y + SLOT_SIZE, border);
-        GuiComponent.fill(ps, x, y, x + 1, y + SLOT_SIZE, border);
-        GuiComponent.fill(ps, x + SLOT_SIZE - 1, y, x + SLOT_SIZE, y + SLOT_SIZE, border);
+        AnvilTheme.slotBg(ps, x, y, SLOT_SIZE, hover);
     }
 
     private void drawItemIcon(PoseStack ps, ItemStack stack, int x, int y) {
@@ -862,7 +819,7 @@ public class ModifierSearchTab implements AnvilTab {
                 Font font = mc.font;
                 int tw = font.width(s);
                 int tx = x + SLOT_SIZE - tw - 1;
-                int ty = y + SLOT_SIZE - 8;
+                int ty = y + SLOT_SIZE - 9;
                 font.drawShadow(ps, s, tx, ty, 0xFFFFFF);
             }
         } catch (Throwable ignored) {}
@@ -920,8 +877,8 @@ public class ModifierSearchTab implements AnvilTab {
         if (slotDropdownOpen) {
             if (mx >= slotDropdownX && mx <= slotDropdownX + slotDropdownW
                     && my >= slotDropdownY && my <= slotDropdownY + slotDropdownH) {
-                int itemH = 14;
-                int cy = slotDropdownY + 3;
+                int itemH = 16;
+                int cy = slotDropdownY + 4;
                 for (String type : slotTypes) {
                     if (my >= cy && my <= cy + itemH) {
                         if (!slotFilter.remove(type)) slotFilter.add(type);
@@ -933,7 +890,7 @@ public class ModifierSearchTab implements AnvilTab {
                 return true;
             } else {
                 slotDropdownOpen = false;
-                // 不 return，继续向下（允许点到别处）
+                // 不 return，继续向下
             }
         }
 
