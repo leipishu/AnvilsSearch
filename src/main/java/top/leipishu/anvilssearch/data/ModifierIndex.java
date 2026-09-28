@@ -24,8 +24,8 @@ public final class ModifierIndex {
     // ============================================================
 
     public static final class SlotRequirement {
-        public final String typeId;
-        public final Component displayName;
+        public final String typeId;          // 规范化 id: upgrade / ability / defense / soul / ...
+        public final Component displayName;  // 本地化名
         public final int count;
 
         public SlotRequirement(String typeId, Component displayName, int count) {
@@ -38,7 +38,7 @@ public final class ModifierIndex {
     public static final class LevelInfo {
         public final int level;
         public final Component displayName;
-        public final List<SlotRequirement> slots;
+        public final List<SlotRequirement> slots;   // ★ 新增：结构化槽位
         public final List<ItemStack> materials;
         public final List<Component> materialLines;
         public final Object toolFilter;
@@ -216,7 +216,7 @@ public final class ModifierIndex {
                 int color = extractColor(mod);
 
                 Object incrementalRecipe = null;
-                Object multilevelRecipe  = null;
+                Object multilevelRecipe = null;
                 List<Object> simpleRecipes = new ArrayList<>();
 
                 for (Object r : recipes) {
@@ -232,68 +232,30 @@ public final class ModifierIndex {
 
                 List<LevelInfo> levels = new ArrayList<>();
 
-                // ===== 分支 1：MultilevelModifierRecipe =====
+                // 分支 1：MultilevelModifierRecipe
                 if (multilevelRecipe != null) {
                     List<?> subRecipes = tryGetSubRecipes(multilevelRecipe);
                     if (subRecipes != null && !subRecipes.isEmpty()) {
                         int idx = 1;
                         for (Object sub : subRecipes) {
-                            if (sub == null) { idx++; continue; }
-
-                            RecipeKind subKind = detectKind(sub);
-
                             List<SlotRequirement> lvSlots = readSlots(sub);
                             MaterialResult mr = readMaterialsFromDisplay(sub);
                             Object tf = readFieldAny(sub,
                                     "toolRequirement", "tools", "toolFilter", "toolIngredient");
                             Component dn = extractDisplayName(mod, idx);
-
-                            int amt = 0, need = 0;
-                            if (subKind == RecipeKind.INCREMENTAL) {
-                                amt  = readIntField(sub, 1,
-                                        "amountPerInput", "amount_per_input",
-                                        "amountPerLevel", "amount_per_level",
-                                        "perLevel", "amount");
-                                need = readIntField(sub, 1,
-                                        "neededPerLevel", "needed_per_level",
-                                        "needed");
-                            }
-
-                            levels.add(new LevelInfo(idx, dn, lvSlots,
-                                    mr.icons, mr.lines, tf, subKind, amt, need));
+                            levels.add(new LevelInfo(idx, dn, lvSlots, mr.icons, mr.lines,
+                                    tf, RecipeKind.MULTILEVEL, 0, 0));
                             idx++;
                         }
                         if (levels.size() > 1) multiCount++;
                     }
-
-                    // 拿不到 sub → 回退当 SIMPLE 处理
-                    if (levels.isEmpty()) {
-                        List<SlotRequirement> lvSlots = readSlots(multilevelRecipe);
-                        MaterialResult mr = readMaterialsFromDisplay(multilevelRecipe);
-                        Object tf = readFieldAny(multilevelRecipe,
-                                "toolRequirement", "tools", "toolFilter", "toolIngredient");
-                        Component dn = extractDisplayName(mod, 1);
-                        levels.add(new LevelInfo(1, dn, lvSlots,
-                                mr.icons, mr.lines, tf, RecipeKind.SIMPLE, 0, 0));
-                    }
                 }
 
-                // ===== 分支 2：IncrementalModifierRecipe =====
+                // 分支 2：IncrementalModifierRecipe
                 if (levels.isEmpty() && incrementalRecipe != null) {
-                    // 先从配方读取 maxLevel
-                    int maxLv = readIntField(incrementalRecipe, 0,
-                            "maxLevel", "max_level", "levels");
-
-                    // ★ 关键修复：配方中读不到时，从修饰符对象获取最大等级
-                    if (maxLv <= 0) {
-                        maxLv = getModifierMaxLevel(mod);
-                    }
-                    if (maxLv <= 0) maxLv = 1;
-
-                    int amountPerInput = readIntField(incrementalRecipe, 1,
-                            "amountPerInput", "amount_per_input", "amount");
-                    int neededPerLevel = readIntField(incrementalRecipe, 1,
-                            "neededPerLevel", "needed_per_level", "needed");
+                    int maxLv = readIntField(incrementalRecipe, 1, "maxLevel", "max_level");
+                    int amountPerInput = readIntField(incrementalRecipe, 1, "amountPerInput", "amount_per_input");
+                    int neededPerLevel = readIntField(incrementalRecipe, 1, "neededPerLevel", "needed_per_level");
 
                     List<SlotRequirement> baseSlots = readSlots(incrementalRecipe);
                     MaterialResult baseMr = readMaterialsFromDisplay(incrementalRecipe);
@@ -315,58 +277,32 @@ public final class ModifierIndex {
                             mats.add(copy);
                             if (matLines.isEmpty()) {
                                 matLines.add(new TextComponent("\u00A77"
-                                        + s.getHoverName().getString()
-                                        + " \u00D7" + countPerLevel));
+                                        + s.getHoverName().getString() + " \u00D7" + countPerLevel));
                             }
                         }
 
                         Component dn = extractDisplayName(mod, lv);
                         levels.add(new LevelInfo(lv, dn, baseSlots, mats, matLines,
-                                tf, RecipeKind.INCREMENTAL,
-                                amountPerInput, neededPerLevel));
+                                tf, RecipeKind.INCREMENTAL, amountPerInput, neededPerLevel));
                     }
                     if (levels.size() > 1) multiCount++;
                 }
 
-                // ===== 分支 3：多个独立 recipe / 单 recipe 多等级 =====
+                // 分支 3：多个独立 recipe
                 if (levels.isEmpty() && !simpleRecipes.isEmpty()) {
                     simpleRecipes.sort(Comparator.comparing(ModifierIndex::getRecipeId));
 
-                    // 如果只有一个简单配方，检查其 maxLevel 是否 > 1
-                    if (simpleRecipes.size() == 1) {
-                        Object r = simpleRecipes.get(0);
-                        int maxLv = readIntField(r, 0,
-                                "maxLevel", "max_level", "levels");
-                        if (maxLv <= 0) maxLv = getModifierMaxLevel(mod);
-                        if (maxLv <= 0) maxLv = 1;
-
+                    int idx = 1;
+                    for (Object r : simpleRecipes) {
                         List<SlotRequirement> lvSlots = readSlots(r);
                         MaterialResult mr = readMaterialsFromDisplay(r);
                         Object toolFilter = readFieldAny(r,
                                 "toolRequirement", "tools", "toolFilter", "toolIngredient");
 
-                        for (int lv = 1; lv <= maxLv; lv++) {
-                            Component dn = extractDisplayName(mod, lv);
-                            levels.add(new LevelInfo(lv, dn, lvSlots,
-                                    mr.icons, mr.lines, toolFilter,
-                                    RecipeKind.SIMPLE, 0, 0));
-                        }
-                        if (levels.size() > 1) multiCount++;
-                    } else {
-                        // 多个独立配方：每个配方一个等级
-                        int idx = 1;
-                        for (Object r : simpleRecipes) {
-                            List<SlotRequirement> lvSlots = readSlots(r);
-                            MaterialResult mr = readMaterialsFromDisplay(r);
-                            Object toolFilter = readFieldAny(r,
-                                    "toolRequirement", "tools", "toolFilter", "toolIngredient");
-
-                            Component dn = extractDisplayName(mod, idx);
-                            levels.add(new LevelInfo(idx, dn, lvSlots,
-                                    mr.icons, mr.lines, toolFilter,
-                                    RecipeKind.SIMPLE, 0, 0));
-                            idx++;
-                        }
+                        Component dn = extractDisplayName(mod, idx);
+                        levels.add(new LevelInfo(idx, dn, lvSlots, mr.icons, mr.lines,
+                                toolFilter, RecipeKind.SIMPLE, 0, 0));
+                        idx++;
                     }
                 }
 
@@ -391,38 +327,18 @@ public final class ModifierIndex {
     }
 
     // ============================================================
-    // ===== 新增：从修饰符对象获取最大等级 =======================
+    // ===== 槽位读取（★ 重写，修复原版永远返回空列表的 bug）=====
     // ============================================================
 
     /**
-     * 从修饰符对象获取最大等级。
-     * 用于 IncrementalModifierRecipe 和 SimpleModifierRecipe 中配方本身
-     * 没有 maxLevel 字段的情况。
+     * 从 recipe 读取槽位需求。
+     *
+     * 兼容两种情况：
+     *   1) recipe.slots 是 List<SlotRequirement>（tconstruct 1.18.2 标准）
+     *   2) recipe.slots 是单个 SlotRequirement 对象
+     *
+     * 每个 SlotRequirement 内部字段：slot / slotType / type（SlotType 对象）+ count
      */
-    private static int getModifierMaxLevel(Object modifier) {
-        if (modifier == null) return 0;
-
-        // 尝试常见方法名
-        for (String mn : new String[]{"getMaxLevel", "getMaxLevelFor", "maxLevel"}) {
-            try {
-                Method m = modifier.getClass().getMethod(mn);
-                m.setAccessible(true);
-                Object v = m.invoke(modifier);
-                if (v instanceof Number n) return n.intValue();
-            } catch (Throwable ignored) {}
-        }
-
-        // 尝试读取字段
-        Object v = readFieldAny(modifier, "maxLevel", "max_level");
-        if (v instanceof Number n) return n.intValue();
-
-        return 0;
-    }
-
-    // ============================================================
-    // ===== 槽位读取 =============================================
-    // ============================================================
-
     private static List<SlotRequirement> readSlots(Object recipe) {
         Object slotsObj = readFieldAny(recipe, "slots", "slotRequirements", "requiredSlots");
         if (slotsObj == null) return Collections.emptyList();
@@ -453,11 +369,13 @@ public final class ModifierIndex {
     }
 
     private static String extractSlotTypeId(Object slotReq) {
+        // 先字段
         Object v = readFieldAny(slotReq, "slot", "slotType", "type");
         if (v != null) {
             String s = slotTypeName(v);
             if (s != null) return s;
         }
+        // 再方法
         for (String mn : new String[]{"getSlot", "getSlotType", "getType"}) {
             Method m = findMethod(slotReq.getClass(), mn);
             if (m == null || m.getParameterCount() != 0) continue;
@@ -498,6 +416,7 @@ public final class ModifierIndex {
         if (lower.contains("defense"))  return "defense";
         if (lower.contains("soul"))     return "soul";
 
+        // 从 "SlotType{name=upgrade}" 这类字符串里抽取
         int braceOpen = raw.indexOf('{');
         int braceClose = raw.indexOf('}');
         if (braceOpen >= 0 && braceClose > braceOpen) {
@@ -530,7 +449,7 @@ public final class ModifierIndex {
     }
 
     // ============================================================
-    // ===== 材料读取 =============================================
+    // ===== 材料 =================================================
     // ============================================================
 
     private static MaterialResult readMaterialsFromDisplay(Object recipe) {
@@ -538,13 +457,10 @@ public final class ModifierIndex {
         List<Component> lines = new ArrayList<>();
         if (recipe == null) return new MaterialResult(icons, lines);
 
-        // 单 input + amount 模式（IncrementalModifierRecipe）
-        Object inputField = readFieldAny(recipe, "input", "ingredient", "inputStack");
+        // 特殊：IncrementalModifierRecipe 单 input + amountPerInput
+        Object inputField = readFieldAny(recipe, "input");
         if (inputField instanceof Ingredient ing) {
-            int amount = readIntField(recipe, 1,
-                    "amountPerInput", "amount_per_input",
-                    "amountPerLevel", "amount_per_level",
-                    "perLevel", "amount");
+            int amount = readIntField(recipe, 1, "amountPerInput", "amount_per_input");
             if (amount < 1) amount = 1;
             ItemStack extracted = firstFromIngredient(ing);
             if (!extracted.isEmpty()) {
@@ -568,8 +484,7 @@ public final class ModifierIndex {
             } catch (Throwable ignored) {}
         }
         if (inputsObj == null) {
-            Object v = readFieldAny(recipe, "inputs", "ingredients",
-                    "displayInputs", "input");
+            Object v = readFieldAny(recipe, "inputs", "ingredients", "input");
             if (v != null) inputsObj = v;
         }
         if (inputsObj == null) return new MaterialResult(icons, lines);
@@ -719,85 +634,40 @@ public final class ModifierIndex {
     // ===== 工具 =================================================
     // ============================================================
 
-    /**
-     * 判断配方种类。
-     * 1. 类名检测扩展到父类链
-     * 2. 结构性检测：能拿到 sub-recipes 就是 MULTILEVEL
-     * 3. 兜底：input 是 Ingredient 且有 amount 类字段 → INCREMENTAL
-     */
-    private static RecipeKind detectKind(Object recipe) {
-        if (recipe == null) return RecipeKind.SIMPLE;
-
-        // 1) 类名 + 父类链
-        Class<?> c = recipe.getClass();
-        while (c != null && c != Object.class) {
-            String n = c.getSimpleName();
-            if (n.contains("Incremental")) return RecipeKind.INCREMENTAL;
-            if (n.contains("Multilevel") || n.contains("MultiLevel")) {
-                return RecipeKind.MULTILEVEL;
-            }
-            c = c.getSuperclass();
-        }
-
-        // 2) 结构性检测：能拿到 sub-recipes 就是 MULTILEVEL
-        List<?> sub = tryGetSubRecipes(recipe);
-        if (sub != null && sub.size() > 1) return RecipeKind.MULTILEVEL;
-
-        // 3) 兜底：input 是 Ingredient 且有 amount 类字段 → INCREMENTAL
-        Object input = readFieldAny(recipe, "input", "ingredient", "inputStack");
-        if (input instanceof Ingredient) {
-            Object amount = readFieldAny(recipe,
-                    "amountPerInput", "amount_per_input",
-                    "amountPerLevel", "amount_per_level",
-                    "perLevel", "amount");
-            if (amount instanceof Number) return RecipeKind.INCREMENTAL;
-        }
-
-        return RecipeKind.SIMPLE;
-    }
-
-    /**
-     * 尝试拿 sub-recipes。
-     * 方法 + 字段双探测，并放宽返回类型。
-     */
     private static List<?> tryGetSubRecipes(Object recipe) {
-        if (recipe == null) return null;
-
-        // 先方法
-        for (String mn : new String[]{"getRecipes", "getLevelRecipes",
-                "getSubRecipes", "getLevels", "getAllRecipes", "getChildren"}) {
+        for (String mn : new String[]{"getRecipes", "getLevelRecipes", "getSubRecipes"}) {
             Method m = findMethod(recipe.getClass(), mn);
             if (m == null || m.getParameterCount() != 0) continue;
             try {
                 m.setAccessible(true);
                 Object v = m.invoke(recipe);
                 if (v instanceof List<?> list && list.size() > 1) return list;
-                if (v instanceof Collection<?> col && col.size() > 1) {
-                    return new ArrayList<>(col);
-                }
             } catch (Throwable ignored) {}
         }
-
-        // 再字段
-        Object v = readFieldAny(recipe,
-                "recipes", "levels", "subRecipes", "levelRecipes", "children");
-        if (v instanceof List<?> list && list.size() > 1) return list;
-        if (v instanceof Collection<?> col && col.size() > 1) {
-            return new ArrayList<>(col);
-        }
-
         return null;
+    }
+
+    private static RecipeKind detectKind(Object recipe) {
+        Class<?> c = recipe.getClass();
+        while (c != null && c != Object.class) {
+            String n = c.getSimpleName();
+            if (n.contains("Incremental")) return RecipeKind.INCREMENTAL;
+            if (n.contains("Multilevel") || n.contains("MultiLevel"))
+                return RecipeKind.MULTILEVEL;
+            c = c.getSuperclass();
+        }
+        Object input = readFieldAny(recipe, "input");
+        Object amount = readFieldAny(recipe, "amountPerInput", "amount_per_input");
+        if (input instanceof Ingredient && amount instanceof Number) {
+            return RecipeKind.INCREMENTAL;
+        }
+        return RecipeKind.SIMPLE;
     }
 
     private static boolean isModifierRecipe(Recipe<?> recipe) {
         Class<?> c = recipe.getClass();
         while (c != null && c != Object.class) {
-            String name = c.getSimpleName();
-            if (name.contains("ModifierRecipe")
-                    || name.contains("Modifier")
-                    || name.contains("SlotRecipe")) {
-                return true;
-            }
+            if (c.getSimpleName().contains("ModifierRecipe")) return true;
             c = c.getSuperclass();
         }
         return false;
