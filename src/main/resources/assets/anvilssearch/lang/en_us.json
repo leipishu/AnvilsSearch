@@ -4,6 +4,7 @@
 
   "gui.anvilssearch.tab.parts": "Parts",
   "gui.anvilssearch.tab.simulator": "Simulator",
+  "gui.anvilssearch.tab.modifier": "Modifiers",
 
   "gui.anvilssearch.parts.empty": "No parts available",
 
@@ -24,7 +25,6 @@
   "gui.anvilssearch.picker.search_hint": "Search material...",
   "gui.anvilssearch.parts.search_material_hint": "Search material...",
 
-  "gui.anvilssearch.tab.modifier": "Modifiers",
   "gui.anvilssearch.modifier.search_hint": "Search modifier...",
   "gui.anvilssearch.modifier.center_item": "Item",
   "gui.anvilssearch.modifier.pick_hint": "Pick a modifier from the left",
@@ -46,5 +46,18 @@
   "gui.anvilssearch.modifier.tag_incremental": "Stk",
   "gui.anvilssearch.modifier.incremental_tag": "Stk +%1$s/%2$s",
   "gui.anvilssearch.modifier.incremental_title": "Incremental Modifier",
-  "gui.anvilssearch.modifier.incremental_summary": "Per level: %1$s · Max level: %2$s"
+  "gui.anvilssearch.modifier.incremental_summary": "Per level: %1$s · Max level: %2$s",
+
+  "gui.anvilssearch.modifier.filter.all": "All",
+  "gui.anvilssearch.modifier.filter.slots": "Slots",
+  "gui.anvilssearch.modifier.filter.slots_n": "Slots(%1$s)",
+  "gui.anvilssearch.modifier.filter.favorites": "Favorites Only",
+  "gui.anvilssearch.modifier.favorite.add": "Add to favorites",
+  "gui.anvilssearch.modifier.favorite.remove": "Remove from favorites",
+
+  "gui.anvilssearch.slot.upgrade": "Upgrade",
+  "gui.anvilssearch.slot.ability": "Ability",
+  "gui.anvilssearch.slot.defense": "Defense",
+  "gui.anvilssearch.slot.soul": "Soul",
+  "gui.anvilssearch.slot.unknown": "Unknown"
 }

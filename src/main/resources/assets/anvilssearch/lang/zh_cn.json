@@ -4,6 +4,7 @@
 
   "gui.anvilssearch.tab.parts": "部件",
   "gui.anvilssearch.tab.simulator": "模拟",
+  "gui.anvilssearch.tab.modifier": "强化",
 
   "gui.anvilssearch.parts.empty": "暂无可用部件",
 
@@ -24,7 +25,6 @@
   "gui.anvilssearch.picker.search_hint": "搜索材料...",
   "gui.anvilssearch.parts.search_material_hint": "搜索材料...",
 
-  "gui.anvilssearch.tab.modifier": "强化",
   "gui.anvilssearch.modifier.search_hint": "搜索强化...",
   "gui.anvilssearch.modifier.center_item": "物品",
   "gui.anvilssearch.modifier.pick_hint": "从左侧选择强化",
@@ -46,5 +46,18 @@
   "gui.anvilssearch.modifier.tag_incremental": "叠",
   "gui.anvilssearch.modifier.incremental_tag": "叠 +%1$s/%2$s",
   "gui.anvilssearch.modifier.incremental_title": "叠加强化",
-  "gui.anvilssearch.modifier.incremental_summary": "每级 %1$s 个 / 最高 %2$s 级"
+  "gui.anvilssearch.modifier.incremental_summary": "每级 %1$s 个 / 最高 %2$s 级",
+
+  "gui.anvilssearch.modifier.filter.all": "全部",
+  "gui.anvilssearch.modifier.filter.slots": "槽位",
+  "gui.anvilssearch.modifier.filter.slots_n": "槽位(%1$s)",
+  "gui.anvilssearch.modifier.filter.favorites": "只看收藏",
+  "gui.anvilssearch.modifier.favorite.add": "加入收藏",
+  "gui.anvilssearch.modifier.favorite.remove": "取消收藏",
+
+  "gui.anvilssearch.slot.upgrade": "升级",
+  "gui.anvilssearch.slot.ability": "能力",
+  "gui.anvilssearch.slot.defense": "防御",
+  "gui.anvilssearch.slot.soul": "灵魂",
+  "gui.anvilssearch.slot.unknown": "未知"
 }

@@ -4,6 +4,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.network.chat.TextComponent;
+import net.minecraft.network.chat.TranslatableComponent;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
@@ -18,10 +19,26 @@ public final class ModifierIndex {
 
     public enum RecipeKind { SIMPLE, INCREMENTAL, MULTILEVEL }
 
+    // ============================================================
+    // ===== 结构化槽位 ===========================================
+    // ============================================================
+
+    public static final class SlotRequirement {
+        public final String typeId;          // 规范化 id: upgrade / ability / defense / soul / ...
+        public final Component displayName;  // 本地化名
+        public final int count;
+
+        public SlotRequirement(String typeId, Component displayName, int count) {
+            this.typeId = (typeId != null && !typeId.isEmpty()) ? typeId : "unknown";
+            this.displayName = displayName != null ? displayName : new TextComponent("?");
+            this.count = Math.max(1, count);
+        }
+    }
+
     public static final class LevelInfo {
         public final int level;
         public final Component displayName;
-        public final List<Component> slotLines;
+        public final List<SlotRequirement> slots;   // ★ 新增：结构化槽位
         public final List<ItemStack> materials;
         public final List<Component> materialLines;
         public final Object toolFilter;
@@ -30,13 +47,13 @@ public final class ModifierIndex {
         public final int neededPerLevel;
 
         public LevelInfo(int level, Component displayName,
-                         List<Component> slotLines,
+                         List<SlotRequirement> slots,
                          List<ItemStack> materials, List<Component> materialLines,
                          Object toolFilter, RecipeKind kind,
                          int amountPerInput, int neededPerLevel) {
             this.level = level;
             this.displayName = displayName != null ? displayName : new TextComponent("?");
-            this.slotLines = slotLines != null ? slotLines : Collections.emptyList();
+            this.slots = slots != null ? slots : Collections.emptyList();
             this.materials = materials != null ? materials : Collections.emptyList();
             this.materialLines = materialLines != null ? materialLines : Collections.emptyList();
             this.toolFilter = toolFilter;
@@ -215,13 +232,13 @@ public final class ModifierIndex {
 
                 List<LevelInfo> levels = new ArrayList<>();
 
-                // 分支 2：MultilevelModifierRecipe
+                // 分支 1：MultilevelModifierRecipe
                 if (multilevelRecipe != null) {
                     List<?> subRecipes = tryGetSubRecipes(multilevelRecipe);
                     if (subRecipes != null && !subRecipes.isEmpty()) {
                         int idx = 1;
                         for (Object sub : subRecipes) {
-                            List<Component> lvSlots = readSlotLines(sub);
+                            List<SlotRequirement> lvSlots = readSlots(sub);
                             MaterialResult mr = readMaterialsFromDisplay(sub);
                             Object tf = readFieldAny(sub,
                                     "toolRequirement", "tools", "toolFilter", "toolIngredient");
@@ -234,13 +251,13 @@ public final class ModifierIndex {
                     }
                 }
 
-                // 分支 1：IncrementalModifierRecipe
+                // 分支 2：IncrementalModifierRecipe
                 if (levels.isEmpty() && incrementalRecipe != null) {
                     int maxLv = readIntField(incrementalRecipe, 1, "maxLevel", "max_level");
                     int amountPerInput = readIntField(incrementalRecipe, 1, "amountPerInput", "amount_per_input");
                     int neededPerLevel = readIntField(incrementalRecipe, 1, "neededPerLevel", "needed_per_level");
 
-                    List<Component> baseSlots = readSlotLines(incrementalRecipe);
+                    List<SlotRequirement> baseSlots = readSlots(incrementalRecipe);
                     MaterialResult baseMr = readMaterialsFromDisplay(incrementalRecipe);
                     Object tf = readFieldAny(incrementalRecipe,
                             "toolRequirement", "tools", "toolFilter", "toolIngredient");
@@ -252,7 +269,6 @@ public final class ModifierIndex {
                                     (double) neededPerLevel / amountPerInput);
                         }
 
-                        // ★ 每个基础材料一个格子，count = countPerLevel
                         List<ItemStack> mats = new ArrayList<>();
                         List<Component> matLines = new ArrayList<>();
                         for (ItemStack s : baseMr.icons) {
@@ -272,13 +288,13 @@ public final class ModifierIndex {
                     if (levels.size() > 1) multiCount++;
                 }
 
-                // 分支 4：多个独立 recipe
+                // 分支 3：多个独立 recipe
                 if (levels.isEmpty() && !simpleRecipes.isEmpty()) {
                     simpleRecipes.sort(Comparator.comparing(ModifierIndex::getRecipeId));
 
                     int idx = 1;
                     for (Object r : simpleRecipes) {
-                        List<Component> lvSlots = readSlotLines(r);
+                        List<SlotRequirement> lvSlots = readSlots(r);
                         MaterialResult mr = readMaterialsFromDisplay(r);
                         Object toolFilter = readFieldAny(r,
                                 "toolRequirement", "tools", "toolFilter", "toolIngredient");
@@ -311,6 +327,128 @@ public final class ModifierIndex {
     }
 
     // ============================================================
+    // ===== 槽位读取（★ 重写，修复原版永远返回空列表的 bug）=====
+    // ============================================================
+
+    /**
+     * 从 recipe 读取槽位需求。
+     *
+     * 兼容两种情况：
+     *   1) recipe.slots 是 List<SlotRequirement>（tconstruct 1.18.2 标准）
+     *   2) recipe.slots 是单个 SlotRequirement 对象
+     *
+     * 每个 SlotRequirement 内部字段：slot / slotType / type（SlotType 对象）+ count
+     */
+    private static List<SlotRequirement> readSlots(Object recipe) {
+        Object slotsObj = readFieldAny(recipe, "slots", "slotRequirements", "requiredSlots");
+        if (slotsObj == null) return Collections.emptyList();
+
+        List<Object> raw = new ArrayList<>();
+        if (slotsObj instanceof Collection<?> col) {
+            raw.addAll(col);
+        } else if (slotsObj instanceof Object[] arr) {
+            for (Object o : arr) raw.add(o);
+        } else {
+            raw.add(slotsObj);
+        }
+
+        List<SlotRequirement> out = new ArrayList<>();
+        for (Object s : raw) {
+            if (s == null) continue;
+
+            String typeId = extractSlotTypeId(s);
+            if (typeId == null || typeId.isEmpty()) continue;
+
+            int count = readIntField(s, 1, "count", "amount", "size");
+            if (count <= 0) count = 1;
+
+            String norm = normalizeSlotType(typeId);
+            out.add(new SlotRequirement(norm, slotTypeDisplayName(norm), count));
+        }
+        return out;
+    }
+
+    private static String extractSlotTypeId(Object slotReq) {
+        // 先字段
+        Object v = readFieldAny(slotReq, "slot", "slotType", "type");
+        if (v != null) {
+            String s = slotTypeName(v);
+            if (s != null) return s;
+        }
+        // 再方法
+        for (String mn : new String[]{"getSlot", "getSlotType", "getType"}) {
+            Method m = findMethod(slotReq.getClass(), mn);
+            if (m == null || m.getParameterCount() != 0) continue;
+            try {
+                m.setAccessible(true);
+                Object r = m.invoke(slotReq);
+                if (r != null) {
+                    String s = slotTypeName(r);
+                    if (s != null) return s;
+                }
+            } catch (Throwable ignored) {}
+        }
+        return null;
+    }
+
+    private static String slotTypeName(Object slotType) {
+        if (slotType == null) return null;
+        if (slotType instanceof String str) return str;
+
+        for (String mn : new String[]{"getName", "getId", "getLocation", "getRegistryName"}) {
+            Method m = findMethod(slotType.getClass(), mn);
+            if (m == null || m.getParameterCount() != 0) continue;
+            try {
+                m.setAccessible(true);
+                Object r = m.invoke(slotType);
+                if (r != null) return String.valueOf(r);
+            } catch (Throwable ignored) {}
+        }
+        return String.valueOf(slotType);
+    }
+
+    private static String normalizeSlotType(String raw) {
+        if (raw == null || raw.isEmpty()) return "unknown";
+        String lower = raw.toLowerCase(Locale.ROOT);
+
+        if (lower.contains("upgrade"))  return "upgrade";
+        if (lower.contains("abilit"))   return "ability";
+        if (lower.contains("defense"))  return "defense";
+        if (lower.contains("soul"))     return "soul";
+
+        // 从 "SlotType{name=upgrade}" 这类字符串里抽取
+        int braceOpen = raw.indexOf('{');
+        int braceClose = raw.indexOf('}');
+        if (braceOpen >= 0 && braceClose > braceOpen) {
+            String inner = raw.substring(braceOpen + 1, braceClose);
+            int eq = inner.indexOf('=');
+            if (eq >= 0) inner = inner.substring(eq + 1);
+            int comma = inner.indexOf(',');
+            if (comma > 0) inner = inner.substring(0, comma);
+            inner = inner.trim();
+            if (!inner.isEmpty() && !inner.equals(raw)) return normalizeSlotType(inner);
+        }
+
+        int colon = lower.lastIndexOf(':');
+        if (colon >= 0 && colon < lower.length() - 1) lower = lower.substring(colon + 1);
+
+        return lower.isEmpty() ? "unknown" : lower;
+    }
+
+    private static Component slotTypeDisplayName(String typeId) {
+        if (typeId == null || typeId.isEmpty()) return new TextComponent("?");
+        TranslatableComponent tc = new TranslatableComponent(
+                "gui.anvilssearch.slot." + typeId);
+        String s = tc.getString();
+        if (s != null && s.equals(tc.getKey())) {
+            String p = typeId;
+            if (p.length() > 0) p = Character.toUpperCase(p.charAt(0)) + p.substring(1);
+            return new TextComponent(p);
+        }
+        return tc;
+    }
+
+    // ============================================================
     // ===== 材料 =================================================
     // ============================================================
 
@@ -319,14 +457,13 @@ public final class ModifierIndex {
         List<Component> lines = new ArrayList<>();
         if (recipe == null) return new MaterialResult(icons, lines);
 
-        // 特殊 1：IncrementalModifierRecipe 用单个 input:Ingredient + amountPerInput
+        // 特殊：IncrementalModifierRecipe 单 input + amountPerInput
         Object inputField = readFieldAny(recipe, "input");
         if (inputField instanceof Ingredient ing) {
             int amount = readIntField(recipe, 1, "amountPerInput", "amount_per_input");
             if (amount < 1) amount = 1;
             ItemStack extracted = firstFromIngredient(ing);
             if (!extracted.isEmpty()) {
-                // ★ 一个格子，count = amount
                 ItemStack copy = extracted.copy();
                 copy.setCount(amount);
                 icons.add(copy);
@@ -336,7 +473,6 @@ public final class ModifierIndex {
             }
         }
 
-        // 通用路径
         Object inputsObj = null;
         for (String mn : new String[]{"getInputs", "getDisplayInputs"}) {
             Method m = findMethod(recipe.getClass(), mn);
@@ -371,12 +507,10 @@ public final class ModifierIndex {
             int count = extractCount(sized);
             if (stack.isEmpty()) continue;
 
-            // ★ 每个 SizedIngredient 一个格子（不跨格子合并），count 保留
             ItemStack iconCopy = stack.copy();
             iconCopy.setCount(count);
             icons.add(iconCopy);
 
-            // 文本仍按物品合并 ×N
             String key;
             try {
                 String regName = stack.getItem().getRegistryName() != null
@@ -494,90 +628,6 @@ public final class ModifierIndex {
             } catch (Throwable ignored) {}
         }
         return 1;
-    }
-
-    // ============================================================
-    // ===== 槽位 =================================================
-    // ============================================================
-
-    private static List<Component> readSlotLines(Object recipe) {
-        Object slots = readFieldAny(recipe, "slots", "slotRequirements", "requiredSlots");
-        if (slots == null) return Collections.emptyList();
-
-        List<Component> out = new ArrayList<>();
-
-        String slotName = null;
-        int count = 0;
-
-        for (String mn : new String[]{"getSlot", "slot", "getSlotType", "slotType", "getType"}) {
-            try {
-                Method m = findMethod(slots.getClass(), mn);
-                if (m == null || m.getParameterCount() != 0) continue;
-                m.setAccessible(true);
-                Object v = m.invoke(slots);
-                if (v != null) { slotName = slotTypeDisplayName(v); break; }
-            } catch (Throwable ignored) {}
-        }
-        if (slotName == null) {
-            Object fv = readFieldAny(slots, "slot", "slotType", "type");
-            if (fv != null) slotName = slotTypeDisplayName(fv);
-        }
-
-        for (String mn : new String[]{"getCount", "count", "getAmount", "getSize"}) {
-            try {
-                Method m = findMethod(slots.getClass(), mn);
-                if (m == null || m.getParameterCount() != 0) continue;
-                m.setAccessible(true);
-                Object v = m.invoke(slots);
-                if (v instanceof Number n) { count = n.intValue(); break; }
-            } catch (Throwable ignored) {}
-        }
-        if (count == 0) {
-            Object fv = readFieldAny(slots, "count", "amount", "size");
-            if (fv instanceof Number n) count = n.intValue();
-        }
-
-        if (slotName != null && count > 0) {
-            out.add(new TextComponent("\u00A77" + slotName
-                    + (count > 1 ? " \u00D7" + count : "")));
-        }
-        return out;
-    }
-
-    private static String slotTypeDisplayName(Object slot) {
-        if (slot == null) return "?";
-
-        String id = null;
-        for (String mn : new String[]{"getName", "getId", "getRegistryName",
-                "name", "id", "getLocation"}) {
-            try {
-                Method m = findMethod(slot.getClass(), mn);
-                if (m == null || m.getParameterCount() != 0) continue;
-                m.setAccessible(true);
-                Object v = m.invoke(slot);
-                if (v != null) { id = v.toString(); break; }
-            } catch (Throwable ignored) {}
-        }
-        if (id == null) id = String.valueOf(slot);
-
-        String lower = id.toLowerCase();
-        if (lower.contains("upgrade") || lower.contains("升级")) return "升级";
-        if (lower.contains("abilit") || lower.contains("能力"))  return "能力";
-        if (lower.contains("defense") || lower.contains("防御")) return "防御";
-        if (lower.contains("soul") || lower.contains("灵魂"))    return "灵魂";
-
-        int open = id.indexOf('{');
-        int close = id.indexOf('}');
-        if (open >= 0 && close > open) id = id.substring(open + 1, close);
-        int ob = id.indexOf('[');
-        int cb = id.indexOf(']');
-        if (ob >= 0 && cb > ob) id = id.substring(ob + 1, cb);
-
-        if (id.toLowerCase().startsWith("slot=")) id = id.substring(5);
-        int comma = id.indexOf(',');
-        if (comma > 0) id = id.substring(0, comma).trim();
-
-        return id;
     }
 
     // ============================================================

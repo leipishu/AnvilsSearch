@@ -110,6 +110,9 @@ public class AnvilsSearch {
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
+
+        top.leipishu.anvilssearch.data.FavoritesStore.flushIfDirty();
+
         if (!isAnvilScreenNow()) return;
         if (sidebar == null) return;
 
