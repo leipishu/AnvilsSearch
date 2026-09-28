@@ -28,6 +28,8 @@ import top.leipishu.tinkerssearch.client.render.ScissorHelper;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch.PinyinResult;
 
+import org.lwjgl.opengl.GL11;
+
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -421,14 +423,20 @@ public class ModifierSearchTab implements AnvilTab {
         drawSlotBg(ps, t4x, row3Y, mouseX, mouseY);
         drawSlotBg(ps, t5x, row3Y, mouseX, mouseY);
 
-        // ===== 阶段 2：统一画所有物品图标（关键修复：一次性开 depth test）=====
-        boolean depthWas = org.lwjgl.opengl.GL11.glIsEnabled(
-                org.lwjgl.opengl.GL11.GL_DEPTH_TEST);
+        // ===== 阶段 2：统一画所有物品图标 =====
+        // ★ 关键修复：父级 onScreenDrawPost 调用了 RenderSystem.depthMask(false)，
+        //   而物品渲染（尤其是附魔光效 glint）依赖模型本身先写入深度缓冲：
+        //     - depthMask=false 时 glint 那一遍 depthFunc(GL_LEQUAL) 全部失败 → 光效消失
+        //     - 同 z 层多个物品互相被残留深度剔除 → 部分物品不显示（3 个经验瓶只剩 2 个）
+        //   所以这里必须临时打开 depthMask，且完整保存/恢复深度与混合状态。
+        boolean depthWas     = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
+        boolean depthMaskWas = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
         try {
-            if (!depthWas) RenderSystem.enableDepthTest();
-            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+            RenderSystem.enableDepthTest();
+            RenderSystem.depthMask(true);              // ★ 让物品模型真正写入深度
             RenderSystem.enableBlend();
             RenderSystem.defaultBlendFunc();
+            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
 
             drawItemIcon(ps, matIcons[1], t1x, row1Y);
             drawItemIcon(ps, matIcons[0], t2x, row2Y);
@@ -438,7 +446,10 @@ public class ModifierSearchTab implements AnvilTab {
             drawItemIcon(ps, matIcons[4], t5x, row3Y);
         } finally {
             RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
-            if (!depthWas) RenderSystem.disableDepthTest();
+            RenderSystem.defaultBlendFunc();           // 恢复 ItemRenderer 可能改动过的混合
+            RenderSystem.depthMask(depthMaskWas);      // 恢复父级期望的 depthMask(false)
+            if (depthWas) RenderSystem.enableDepthTest();
+            else          RenderSystem.disableDepthTest();
         }
 
         int infoTop = row3Y + size + 8;
