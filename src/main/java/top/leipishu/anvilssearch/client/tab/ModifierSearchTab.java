@@ -31,7 +31,6 @@ import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch.PinyinResult;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -39,30 +38,29 @@ import java.util.Set;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
 
+/**
+ * 强化搜索 Tab（平铺模式）。
+ * 每条 {@link ModifierIndex.Entry} 直接对应列表中的一行。
+ */
 public class ModifierSearchTab implements AnvilTab {
 
-    // ===== 使用统一主题尺寸 =====
-    private static final int ROW_H     = AnvilTheme.ROW_H;      // 18
-    private static final int SUB_ROW_H = AnvilTheme.SUB_ROW_H;  // 16
-    private static final int LINE_H    = AnvilTheme.LINE_H;     // 12
-    private static final int CARD_GAP  = AnvilTheme.CARD_GAP;   // 6
-    private static final int SLOT_SIZE = AnvilTheme.SLOT_SIZE;  // 18
-    private static final int SLOT_GAP  = AnvilTheme.SLOT_GAP;   // 3
+    private static final int ROW_H     = AnvilTheme.ROW_H;
+    private static final int LINE_H    = AnvilTheme.LINE_H;
+    private static final int CARD_GAP  = AnvilTheme.CARD_GAP;
+    private static final int SLOT_SIZE = AnvilTheme.SLOT_SIZE;
+    private static final int SLOT_GAP  = AnvilTheme.SLOT_GAP;
 
     private static final int SEARCH_H = 16;
     private static final int FILTER_H = 16;
 
-    // 星标
     private static final int STAR_W     = 12;
     private static final int STAR_BTN_W = 16;
 
-    // 下拉面板布局常量
     private static final int DROP_HEADER_H = 20;
     private static final int DROP_ITEM_H   = 16;
     private static final int DROP_BTN_H    = 14;
     private static final int DROP_BTN_PAD  = 4;
 
-    /** 表示「无槽位」的虚拟槽位类型 id。 */
     private static final String SLOT_NONE = "__none__";
 
     private final AnvilSidebarPanel panel;
@@ -71,7 +69,6 @@ public class ModifierSearchTab implements AnvilTab {
     private List<ModifierIndex.Entry> filtered   = new ArrayList<>();
     private List<String> slotTypes = new ArrayList<>();
 
-    // ===== 筛选状态 =====
     private boolean favoritesOnly = false;
     private final Set<String> slotFilter = new LinkedHashSet<>();
     private boolean slotDropdownOpen = false;
@@ -83,9 +80,6 @@ public class ModifierSearchTab implements AnvilTab {
     private final SearchBox searchBox = new SearchBox(SearchBoxStyle.panel());
 
     private ModifierIndex.Entry selected = null;
-    private int selectedLevel = 0;
-
-    private final Set<String> expandedInList = new HashSet<>();
 
     private int leftListX, leftListTop, leftListW, leftListH;
     private int filterBarY;
@@ -154,10 +148,6 @@ public class ModifierSearchTab implements AnvilTab {
         applyFilter("");
     }
 
-    /**
-     * 收集所有槽位类型。
-     * ★ 若存在完全没有任何槽位需求的强化，则最前面加入 SLOT_NONE。
-     */
     private List<String> collectSlotTypes() {
         Set<String> types = new LinkedHashSet<>();
         boolean anyNoSlot = false;
@@ -166,8 +156,10 @@ public class ModifierSearchTab implements AnvilTab {
             boolean entryHasSlot = false;
             for (ModifierIndex.LevelInfo li : e.levels) {
                 for (ModifierIndex.SlotRequirement sr : li.slots) {
-                    entryHasSlot = true;
-                    types.add(sr.typeId);
+                    if (!"none".equals(sr.typeId)) {
+                        entryHasSlot = true;
+                        types.add(sr.typeId);
+                    }
                 }
             }
             if (!entryHasSlot) anyNoSlot = true;
@@ -194,7 +186,6 @@ public class ModifierSearchTab implements AnvilTab {
             out.add(e);
         }
 
-        // 收藏置顶（stable）
         out.sort((a, b) -> {
             boolean fa = FavoritesStore.isFavorite(a.id);
             boolean fb = FavoritesStore.isFavorite(b.id);
@@ -207,15 +198,11 @@ public class ModifierSearchTab implements AnvilTab {
         rightScrollOffset = 0;
     }
 
-    /**
-     * 槽位筛选逻辑。
-     * 当 entry 的所有 level 都没有任何槽位需求时，若用户在筛选里勾选了「无槽位」，
-     * 则视为命中。
-     */
     private boolean matchesSlotFilter(ModifierIndex.Entry e) {
         boolean entryHasSlot = false;
         for (ModifierIndex.LevelInfo li : e.levels) {
             for (ModifierIndex.SlotRequirement sr : li.slots) {
+                if ("none".equals(sr.typeId)) continue;
                 entryHasSlot = true;
                 if (slotFilter.contains(sr.typeId)) return true;
             }
@@ -224,8 +211,17 @@ public class ModifierSearchTab implements AnvilTab {
         return false;
     }
 
+    private static String entryName(ModifierIndex.Entry e) {
+        if (e.levels.isEmpty()) return e.getDisplayName();
+        try {
+            return e.levels.get(0).displayName.getString();
+        } catch (Throwable t) {
+            return e.getDisplayName();
+        }
+    }
+
     private static boolean matches(ModifierIndex.Entry e, String k) {
-        String name = e.getDisplayName();
+        String name = entryName(e);
         if (name.toLowerCase(Locale.ROOT).contains(k)) return true;
         if (e.registryPath != null && e.registryPath.toLowerCase(Locale.ROOT).contains(k))
             return true;
@@ -237,33 +233,19 @@ public class ModifierSearchTab implements AnvilTab {
     }
 
     private static boolean isIncrementalEntry(ModifierIndex.Entry e) {
-        if (e.levels.isEmpty()) return false;
-        for (ModifierIndex.LevelInfo li : e.levels) {
-            if (li.kind != ModifierIndex.RecipeKind.INCREMENTAL) return false;
-        }
-        return true;
+        return !e.levels.isEmpty()
+                && e.levels.get(0).kind == ModifierIndex.RecipeKind.INCREMENTAL;
     }
 
     private ModifierIndex.LevelInfo getSelectedLevelInfo() {
         if (selected == null || selected.levels.isEmpty()) return null;
-        if (selectedLevel > 0) {
-            for (ModifierIndex.LevelInfo li : selected.levels) {
-                if (li.level == selectedLevel) return li;
-            }
-        }
         return selected.levels.get(0);
     }
 
     // ============================================================
-    // ===== 颜色工具（★ 新增）====================================
+    // ===== 颜色工具 ============================================
     // ============================================================
 
-    /**
-     * 把强化颜色做自适应提亮，保证在深色背景下始终可读。
-     * - 感知亮度足够（>= 170）→ 原样返回
-     * - 偏暗 → 按比例与白色混合，最多 75% 白，避免过曝
-     * 效果：红 → 浅红；蓝 → 浅蓝；黑 → 浅灰；白/黄 → 不变
-     */
     private static int readableTint(int color) {
         int r = (color >> 16) & 0xFF;
         int g = (color >> 8) & 0xFF;
@@ -272,8 +254,8 @@ public class ModifierSearchTab implements AnvilTab {
         int lum = (r * 299 + g * 587 + b * 114) / 1000;
 
         if (lum < 170) {
-            float t = (170 - lum) / 170f;   // 0..1
-            t = Math.min(t, 0.75f);         // 最多 75% 白
+            float t = (170 - lum) / 170f;
+            t = Math.min(t, 0.75f);
             r = (int) (r + (255 - r) * t);
             g = (int) (g + (255 - g) * t);
             b = (int) (b + (255 - b) * t);
@@ -282,9 +264,6 @@ public class ModifierSearchTab implements AnvilTab {
         return 0xFF000000 | (r << 16) | (g << 8) | b;
     }
 
-    /**
-     * 选中行背景：用强化颜色以 ~27% 透明度叠加，与强化本身呼应。
-     */
     private static int selectedRowBg(int color) {
         return (color & 0x00FFFFFF) | 0x44000000;
     }
@@ -366,14 +345,7 @@ public class ModifierSearchTab implements AnvilTab {
             return;
         }
 
-        int totalH = 0;
-        for (ModifierIndex.Entry e : filtered) {
-            totalH += ROW_H;
-            boolean inc = isIncrementalEntry(e);
-            if (!inc && e.levels.size() > 1 && expandedInList.contains(e.id)) {
-                totalH += e.levels.size() * SUB_ROW_H;
-            }
-        }
+        int totalH = filtered.size() * ROW_H;
         maxScrollOffset = Math.max(0, totalH - listH);
         if (scrollOffset > maxScrollOffset) scrollOffset = maxScrollOffset;
 
@@ -386,24 +358,9 @@ public class ModifierSearchTab implements AnvilTab {
 
             int rowY = listTop - scrollOffset;
             for (ModifierIndex.Entry e : filtered) {
-                boolean inc = isIncrementalEntry(e);
-                boolean multi = !inc && e.levels.size() > 1;
-                boolean expanded = multi && expandedInList.contains(e.id);
-
                 drawEntryRow(ps, font, innerX, rowY, clipW, e,
-                        multi, expanded, inc,
-                        selected == e && selectedLevel == 0,
-                        mouseX, mouseY);
+                        selected == e, mouseX, mouseY);
                 rowY += ROW_H;
-
-                if (expanded) {
-                    for (ModifierIndex.LevelInfo li : e.levels) {
-                        drawSubRow(ps, font, innerX, rowY, clipW, e, li,
-                                selected == e && selectedLevel == li.level,
-                                mouseX, mouseY);
-                        rowY += SUB_ROW_H;
-                    }
-                }
             }
         } finally {
             if (scissorOk) {
@@ -465,7 +422,6 @@ public class ModifierSearchTab implements AnvilTab {
 
         AnvilTheme.cardBg(ps, x, y, w, h, 0);
 
-        // ===== 顶部：全选 / 清空 按钮 =====
         int btnX = x + DROP_BTN_PAD;
         int btnY = y + 4;
         int btnW = w - DROP_BTN_PAD * 2;
@@ -488,7 +444,6 @@ public class ModifierSearchTab implements AnvilTab {
         GuiComponent.fill(ps, x + 2, y + DROP_HEADER_H - 1,
                 x + w - 2, y + DROP_HEADER_H, AnvilTheme.SECTION_BORDER);
 
-        // ===== 槽位列表 =====
         int cy = y + DROP_HEADER_H + 2;
         for (String type : slotTypes) {
             boolean hover = mouseX >= x + 1 && mouseX <= x + w - 1
@@ -522,17 +477,15 @@ public class ModifierSearchTab implements AnvilTab {
     }
 
     // ============================================================
-    // ===== 列表行 ===============================================
+    // ===== 列表行（平铺）========================================
     // ============================================================
 
     private void drawEntryRow(PoseStack ps, Font font,
                               int x, int y, int clipW, ModifierIndex.Entry e,
-                              boolean multi, boolean expanded, boolean incremental,
                               boolean sel, int mouseX, int mouseY) {
         boolean hover = mouseX >= x && mouseX <= x + clipW
                 && mouseY >= y && mouseY <= y + ROW_H;
 
-        // ★ 选中：用强化颜色低透明度叠加；否则普通 hover
         if (sel) {
             GuiComponent.fill(ps, x, y, x + clipW, y + ROW_H,
                     selectedRowBg(e.color));
@@ -543,7 +496,6 @@ public class ModifierSearchTab implements AnvilTab {
 
         int textY = AnvilTheme.centeredTextY(y, ROW_H, font);
 
-        // 星标
         boolean fav = FavoritesStore.isFavorite(e.id);
         String star = fav ? "\u2605" : "\u2606";
         int starX = x + 3;
@@ -553,7 +505,7 @@ public class ModifierSearchTab implements AnvilTab {
                 fav ? AnvilTheme.ACCENT
                         : (starHover ? AnvilTheme.TEXT_MUTED : AnvilTheme.TEXT_DIM));
 
-        // 右侧标记
+        boolean incremental = isIncrementalEntry(e);
         String right = "";
         int rightW = 0;
         int rightX = -1;
@@ -565,26 +517,16 @@ public class ModifierSearchTab implements AnvilTab {
             rightW = font.width(icon) + 3;
             rightX = x + clipW - rightW - 2;
             isIconLightning = true;
-        } else if (multi) {
-            right = expanded ? "\u25BC" : "\u25B6";
-            rightW = font.width(right) + 3;
-            rightX = x + clipW - rightW - 2;
         }
 
         int textX = starX + STAR_W + 4;
         int maxNameW = clipW - (textX - x) - 6 - rightW;
 
-        String name;
-        try {
-            name = e.getDisplayNameComponent(1).getString();
-        } catch (Throwable t) {
-            name = e.getDisplayName();
-        }
+        String name = entryName(e);
         String display = font.width(name) > maxNameW
                 ? font.plainSubstrByWidth(name, maxNameW - 4) + "..."
                 : name;
 
-        // ★ 选中文字：强化颜色的可读版本（与强化本身呼应）
         font.draw(ps, display, textX, textY,
                 sel ? readableTint(e.color)
                         : (hover ? AnvilTheme.TEXT_PRIMARY : e.color));
@@ -610,40 +552,11 @@ public class ModifierSearchTab implements AnvilTab {
         }
     }
 
-    private void drawSubRow(PoseStack ps, Font font,
-                            int x, int y, int clipW,
-                            ModifierIndex.Entry e, ModifierIndex.LevelInfo li,
-                            boolean sel, int mouseX, int mouseY) {
-        boolean hover = mouseX >= x && mouseX <= x + clipW
-                && mouseY >= y && mouseY <= y + SUB_ROW_H;
-
-        // ★ 选中：用强化颜色低透明度叠加；否则普通 hover
-        if (sel) {
-            GuiComponent.fill(ps, x, y, x + clipW, y + SUB_ROW_H,
-                    selectedRowBg(e.color));
-        } else if (hover) {
-            GuiComponent.fill(ps, x, y, x + clipW, y + SUB_ROW_H,
-                    AnvilTheme.ROW_HOVER);
-        }
-
-        // ★ 移除左侧强调条（rowAccentBar）
-
-        String name = li.displayName.getString();
-        String display = font.width(name) > clipW - 26
-                ? font.plainSubstrByWidth(name, clipW - 30) + "..."
-                : name;
-
-        int textY = AnvilTheme.centeredTextY(y, SUB_ROW_H, font);
-        // ★ 选中文字：强化颜色的可读版本
-        font.draw(ps, display, x + 20, textY,
-                sel ? readableTint(e.color)
-                        : (hover ? AnvilTheme.TEXT_PRIMARY : e.color));
-    }
-
     // ============================================================
     // ===== 右栏：矩阵 + 卡片 ====================================
     // ============================================================
 
+    @SuppressWarnings("unchecked")
     private void renderRight(PoseStack ps, Font font,
                              int x, int y, int w, int h,
                              int mouseX, int mouseY) {
@@ -661,7 +574,14 @@ public class ModifierSearchTab implements AnvilTab {
         for (int i = 0; i < 5; i++) matIcons[i] = ItemStack.EMPTY;
 
         ModifierIndex.LevelInfo selLi = getSelectedLevelInfo();
-        if (selLi != null) {
+        if (selLi != null && selLi.slotMaterials != null) {
+            for (int i = 0; i < 5; i++) {
+                List<ItemStack> sl = selLi.slotMaterials[i];
+                if (sl != null && !sl.isEmpty()) {
+                    matIcons[i] = sl.get(0);
+                }
+            }
+        } else if (selLi != null) {
             for (int i = 0; i < Math.min(5, selLi.materials.size()); i++) {
                 matIcons[i] = selLi.materials.get(i);
             }
@@ -726,12 +646,7 @@ public class ModifierSearchTab implements AnvilTab {
         int maxTextW = w - AnvilTheme.PAD_L * 2 - 14;
         List<Card> cards = new ArrayList<>();
 
-        String titleText;
-        try {
-            titleText = selLi.displayName.getString();
-        } catch (Throwable t) {
-            titleText = selected.getDisplayName();
-        }
+        String titleText = entryName(selected);
         MutableComponent titleComp = new TextComponent(titleText)
                 .withStyle(Style.EMPTY
                         .withColor(TextColor.fromRgb(selected.color))
@@ -746,15 +661,25 @@ public class ModifierSearchTab implements AnvilTab {
         List<Component> c2 = new ArrayList<>();
         c2.add(buildSlotLine(selLi));
 
+        if (selLi.requirementsError != null) {
+            c2.add(new TextComponent("\u00A7c" + new TranslatableComponent(
+                    "gui.anvilssearch.modifier.requirements_error").getString()));
+            c2.add(new TextComponent("\u00A77" + selLi.requirementsError));
+        }
+
         if (selLi.kind == ModifierIndex.RecipeKind.INCREMENTAL
                 && selLi.amountPerInput > 0 && selLi.neededPerLevel > 0) {
-            int perLevel = (int) Math.ceil(
-                    (double) selLi.neededPerLevel / selLi.amountPerInput);
-            int maxLevel = selected.levels.size();
             c2.add(new TextComponent("\u00A7e"
                     + new TranslatableComponent(
                     "gui.anvilssearch.modifier.incremental_summary",
-                    perLevel, maxLevel).getString()));
+                    selLi.amountPerInput, selLi.neededPerLevel).getString()));
+        }
+
+        if (selLi.variant != null) {
+            c2.add(new TextComponent("\u00A77"
+                    + new TranslatableComponent(
+                    "gui.anvilssearch.modifier.variant").getString()
+                    + ": " + selLi.variant.getString()));
         }
 
         if (!selLi.materialLines.isEmpty()) {
@@ -813,13 +738,19 @@ public class ModifierSearchTab implements AnvilTab {
                 .append(new TranslatableComponent(
                         "gui.anvilssearch.modifier.slots_label").getString())
                 .append(" \u00A7f");
-        if (li.slots.isEmpty()) {
+        boolean hasRealSlot = false;
+        for (ModifierIndex.SlotRequirement sr : li.slots) {
+            if (!"none".equals(sr.typeId)) { hasRealSlot = true; break; }
+        }
+        if (!hasRealSlot) {
             sb.append(new TranslatableComponent(
                     "gui.anvilssearch.modifier.slots_none").getString());
         } else {
-            for (int i = 0; i < li.slots.size(); i++) {
-                if (i > 0) sb.append("\u00A77, \u00A7f");
-                ModifierIndex.SlotRequirement sr = li.slots.get(i);
+            boolean first = true;
+            for (ModifierIndex.SlotRequirement sr : li.slots) {
+                if ("none".equals(sr.typeId)) continue;
+                if (!first) sb.append("\u00A77, \u00A7f");
+                first = false;
                 sb.append(sr.displayName.getString());
                 if (sr.count > 1) sb.append(" \u00D7").append(sr.count);
             }
@@ -912,17 +843,21 @@ public class ModifierSearchTab implements AnvilTab {
         } catch (Throwable ignored) {}
     }
 
+    /**
+     * 照搬 JEI：不做工具过滤，列表显示全部强化。
+     */
     private boolean canApplyToCurrentItem(ModifierIndex.Entry entry) {
-        if (entry == null || entry.levels.isEmpty()) return false;
-        ItemStack item = AnvilSlotAccess.getCenterItem();
-        if (item == null || item.isEmpty()) return false;
+        if (entry == null || entry.levels.isEmpty()) return true;
 
         ModifierIndex.LevelInfo li = entry.levels.get(0);
-        if (li.toolFilter != null) {
-            Boolean r = testIngredient(li.toolFilter, item);
-            if (r != null) return r;
-        }
-        return false;
+        if (li.toolFilter == null) return true;
+
+        ItemStack item = AnvilSlotAccess.getCenterItem();
+        if (item == null || item.isEmpty()) return true;
+
+        Boolean r = testIngredient(li.toolFilter, item);
+        if (r == null) return true;
+        return r;
     }
 
     private static Boolean testIngredient(Object ingredient, ItemStack stack) {
@@ -1036,10 +971,6 @@ public class ModifierSearchTab implements AnvilTab {
 
             int rowY = leftListTop - scrollOffset;
             for (ModifierIndex.Entry e : filtered) {
-                boolean inc = isIncrementalEntry(e);
-                boolean multi = !inc && e.levels.size() > 1;
-                boolean expanded = multi && expandedInList.contains(e.id);
-
                 if (my >= rowY && my <= rowY + ROW_H) {
                     int starX = leftListX + 3;
                     if (mx >= starX - 2 && mx <= starX + STAR_W + 2) {
@@ -1047,34 +978,11 @@ public class ModifierSearchTab implements AnvilTab {
                         if (favoritesOnly) applyFilter(panel.getSearchKeyword());
                         return true;
                     }
-                    if (inc) {
-                        selected = e;
-                        selectedLevel = 0;
-                        rightScrollOffset = 0;
-                        return true;
-                    }
-                    if (multi) {
-                        if (expanded) expandedInList.remove(e.id);
-                        else expandedInList.add(e.id);
-                    }
                     selected = e;
-                    selectedLevel = 0;
                     rightScrollOffset = 0;
                     return true;
                 }
                 rowY += ROW_H;
-
-                if (expanded) {
-                    for (ModifierIndex.LevelInfo li : e.levels) {
-                        if (my >= rowY && my <= rowY + SUB_ROW_H) {
-                            selected = e;
-                            selectedLevel = li.level;
-                            rightScrollOffset = 0;
-                            return true;
-                        }
-                        rowY += SUB_ROW_H;
-                    }
-                }
             }
         }
         return false;

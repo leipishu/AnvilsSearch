@@ -66,5 +66,11 @@
   "gui.anvilssearch.sim.preview_header": "预览",
   "gui.anvilssearch.slot.none": "无槽位",
   "gui.anvilssearch.modifier.filter.select_all": "全选",
-  "gui.anvilssearch.modifier.filter.clear": "清空"
+  "gui.anvilssearch.modifier.filter.clear": "清空",
+
+
+  "gui.anvilssearch.modifier.requirements_error": "前置条件未满足",
+  "gui.anvilssearch.modifier.requirements_generic": "前置条件未满足",
+  "gui.anvilssearch.modifier.variant": "变体"
+
 }

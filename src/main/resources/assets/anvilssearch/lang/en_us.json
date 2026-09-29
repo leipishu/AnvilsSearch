@@ -46,7 +46,7 @@
   "gui.anvilssearch.modifier.tag_incremental": "Stk",
   "gui.anvilssearch.modifier.incremental_tag": "Stk +%1$s/%2$s",
   "gui.anvilssearch.modifier.incremental_title": "Incremental Modifier",
-  "gui.anvilssearch.modifier.incremental_summary": "Per level: %1$s · Max level: %2$s",
+  "gui.anvilssearch.modifier.incremental_summary": "Per level: %1$s / Max level: %2$s",
 
   "gui.anvilssearch.modifier.filter.all": "All",
   "gui.anvilssearch.modifier.filter.slots": "Slots",
@@ -66,5 +66,9 @@
   "gui.anvilssearch.sim.preview_header": "Preview",
   "gui.anvilssearch.slot.none": "No Slot",
   "gui.anvilssearch.modifier.filter.select_all": "All",
-  "gui.anvilssearch.modifier.filter.clear": "Clear"
+  "gui.anvilssearch.modifier.filter.clear": "Clear",
+
+  "gui.anvilssearch.modifier.requirements_error": "Requirements not met",
+  "gui.anvilssearch.modifier.requirements_generic": "Requirements not met",
+  "gui.anvilssearch.modifier.variant": "Variant"
 }
