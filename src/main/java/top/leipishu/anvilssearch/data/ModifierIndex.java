@@ -17,14 +17,9 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 照搬匠魂 JEI 插件的读取方式。
  *
- * 关键逻辑：
- *   1. 增量配方（IncrementalModifierRecipe）用 getInputs() 获取完整槽位材料。
- *   2. slotless 配方 getSlots() 返回 null → 显式构造 "none" 槽位。
- *   3. requirementsError 是匠魂翻译键时自动翻译。
- *   4. 变体名称检测 recipe.tconstruct 前缀，跳过未翻译的 key。
- *   5. 剔除材料为空的空配方。
- *   6. 非增量配方且 maxLevel > baseLevel 时，展开成多个 Entry（如阅历 I~V）。
- *   7. Entry 保留原始 display 配方对象，供 UI 做前置条件动态检查。
+ * 对外提供两份数据：
+ *   - get()        —— 平铺：每个等级一条 Entry；
+ *   - getGrouped() —— 合并：同一 modifier 的多个等级合成一条，叠加配方不合并。
  */
 public final class ModifierIndex {
 
@@ -54,6 +49,9 @@ public final class ModifierIndex {
         public final List<Component> materialLines;
         public final List<ItemStack>[] slotMaterials;
         public final Object toolFilter;
+        public final Object toolRequirement;
+        /** 该等级对应的原始 display 配方对象，用于 UI 做前置条件检查。 */
+        public final Object recipe;
         public final RecipeKind kind;
         public final int amountPerInput;
         public final int neededPerLevel;
@@ -65,7 +63,8 @@ public final class ModifierIndex {
                          List<SlotRequirement> slots,
                          List<ItemStack> materials, List<Component> materialLines,
                          List<ItemStack>[] slotMaterials,
-                         Object toolFilter, RecipeKind kind,
+                         Object toolFilter, Object toolRequirement, Object recipe,
+                         RecipeKind kind,
                          int amountPerInput, int neededPerLevel,
                          String requirementsError, Component variant) {
             this.level = level;
@@ -75,6 +74,8 @@ public final class ModifierIndex {
             this.materialLines = materialLines != null ? materialLines : Collections.emptyList();
             this.slotMaterials = slotMaterials;
             this.toolFilter = toolFilter;
+            this.toolRequirement = toolRequirement;
+            this.recipe = recipe;
             this.kind = kind != null ? kind : RecipeKind.SIMPLE;
             this.amountPerInput = amountPerInput;
             this.neededPerLevel = neededPerLevel;
@@ -98,7 +99,6 @@ public final class ModifierIndex {
 
     public static final class Entry {
         public final Object modifier;
-        /** ★ 原始 display 配方对象，用于 UI 调用 getValidatedResult */
         public final Object recipe;
         public final String id;
         public final String registryPath;
@@ -167,6 +167,7 @@ public final class ModifierIndex {
     }
 
     private static volatile List<Entry> cache;
+    private static volatile List<Entry> cacheGrouped;
     private static final Object LOCK = new Object();
     private static final Set<Class<?>> DIAGNOSED =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -174,7 +175,10 @@ public final class ModifierIndex {
     private ModifierIndex() {}
 
     public static void invalidate() {
-        synchronized (LOCK) { cache = null; }
+        synchronized (LOCK) {
+            cache = null;
+            cacheGrouped = null;
+        }
     }
 
     public static List<Entry> get() {
@@ -186,7 +190,91 @@ public final class ModifierIndex {
         }
     }
 
-    public static List<Entry> getGrouped() { return get(); }
+    public static List<Entry> getGrouped() {
+        List<Entry> local = cacheGrouped;
+        if (local != null) return local;
+        synchronized (LOCK) {
+            if (cacheGrouped != null) return cacheGrouped;
+            cacheGrouped = group(get());
+            return cacheGrouped;
+        }
+    }
+
+    private static List<Entry> group(List<Entry> raw) {
+        if (raw.isEmpty()) return raw;
+
+        Map<String, List<Entry>> byKey = new LinkedHashMap<>();
+        List<Entry> passthrough = new ArrayList<>();
+
+        for (Entry e : raw) {
+            boolean incremental = !e.levels.isEmpty()
+                    && e.levels.get(0).kind == RecipeKind.INCREMENTAL;
+            if (incremental) {
+                passthrough.add(e);
+                continue;
+            }
+            String key = e.registryPath != null ? e.registryPath : e.id;
+            byKey.computeIfAbsent(key, k -> new ArrayList<>()).add(e);
+        }
+
+        List<Entry> result = new ArrayList<>();
+        for (Map.Entry<String, List<Entry>> ge : byKey.entrySet()) {
+            String path = ge.getKey();
+            List<Entry> group = ge.getValue();
+            if (group.size() == 1) {
+                result.add(group.get(0));
+                continue;
+            }
+            Entry first = group.get(0);
+
+            List<LevelInfo> merged = new ArrayList<>();
+            for (Entry e : group) merged.addAll(e.levels);
+            merged.sort(Comparator.comparingInt(l -> l.level));
+
+            // 严格去重：level + 名字 + 槽位 + 材料完全相同才视为重复
+            List<LevelInfo> unique = new ArrayList<>();
+            Set<String> seen = new LinkedHashSet<>();
+            for (LevelInfo lv : merged) {
+                String sig = levelSignature(lv);
+                if (seen.add(sig)) unique.add(lv);
+            }
+            if (unique.isEmpty()) unique.addAll(merged);
+
+            if (unique.size() < merged.size()) {
+                System.out.println("[Anvil's Search] group " + path + ": "
+                        + merged.size() + " -> " + unique.size() + " (deduped)");
+            }
+
+            result.add(new Entry(first.modifier, first.recipe, path,
+                    first.registryPath, first.color, unique.size(), unique));
+        }
+        result.addAll(passthrough);
+
+        result.sort(Comparator.comparing(Entry::getDisplayName, String.CASE_INSENSITIVE_ORDER));
+        return result;
+    }
+
+    /**
+     * 严格签名：level + 显示名 + 槽位 + 材料。
+     * 同名同等级但材料不同的配方（如 22 种"装饰"）不会被误合并。
+     */
+    private static String levelSignature(LevelInfo lv) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(lv.level).append('|');
+        try {
+            sb.append(lv.displayName.getString());
+        } catch (Throwable ignored) {}
+        sb.append('|');
+        for (SlotRequirement sr : lv.slots) {
+            sb.append(sr.typeId).append(',').append(sr.count).append(';');
+        }
+        sb.append('|');
+        for (ItemStack s : lv.materials) {
+            if (s == null) continue;
+            sb.append(stackKey(s)).append('*').append(s.getCount()).append(';');
+        }
+        return sb.toString();
+    }
 
     // ============================================================
     // ===== 构建 =================================================
@@ -225,7 +313,6 @@ public final class ModifierIndex {
 
         System.out.println("[Anvil's Search] TINKER_STATION candidates: " + candidates.size());
 
-        // 展开 IMultiRecipe
         List<Object> displayRecipes = new ArrayList<>();
         for (Object r : candidates) {
             List<?> subs = tryExpandMultiRecipe(r);
@@ -284,12 +371,12 @@ public final class ModifierIndex {
             int color = extractColor(modifier);
 
             MaterialResult mr = readMaterialsFromDisplay(display);
-
-            if (mr.icons.isEmpty()) {
-                return entries;
-            }
+            if (mr.icons.isEmpty()) return entries;
 
             List<SlotRequirement> slots = readSlotsFromDisplay(display);
+
+            Object toolRequirement = readFieldAny(display,
+                    "toolRequirement", "tools", "toolFilter", "toolIngredient");
 
             boolean incremental = boolOf(display, "isIncremental");
             int maxLevel = intOf(display, "getMaxLevel");
@@ -338,7 +425,8 @@ public final class ModifierIndex {
                 for (int level = baseLevel; level <= maxLevel; level++) {
                     Component dn = extractDisplayName(modifier, level);
                     LevelInfo lv = new LevelInfo(level, dn, slots, mr.icons, mr.lines,
-                            mr.slotIcons, toolFilter, kind, amountPerInput, neededPerLevel,
+                            mr.slotIcons, toolFilter, toolRequirement, display,
+                            kind, amountPerInput, neededPerLevel,
                             requirementsError, variant);
 
                     String id = modifierId + "#" + level;
@@ -348,7 +436,8 @@ public final class ModifierIndex {
             } else {
                 Component dn = extractDisplayName(modifier, baseLevel);
                 LevelInfo lv = new LevelInfo(baseLevel, dn, slots, mr.icons, mr.lines,
-                        mr.slotIcons, toolFilter, kind, amountPerInput, neededPerLevel,
+                        mr.slotIcons, toolFilter, toolRequirement, display,
+                        kind, amountPerInput, neededPerLevel,
                         requirementsError, variant);
 
                 String id = modifierId + "#" + baseLevel;
@@ -582,6 +671,10 @@ public final class ModifierIndex {
             }
         }
         return null;
+    }
+
+    private static Object readFieldAny(Object obj, String... names) {
+        return field(obj, names);
     }
 
     private static String extractModifierId(Object modifier) {

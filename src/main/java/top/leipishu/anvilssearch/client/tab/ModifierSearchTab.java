@@ -30,8 +30,10 @@ import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch.PinyinResult;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -40,13 +42,10 @@ import java.util.Set;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
 
-/**
- * 强化搜索 Tab（平铺模式）。
- * 每条 {@link ModifierIndex.Entry} 直接对应列表中的一行。
- */
 public class ModifierSearchTab implements AnvilTab {
 
     private static final int ROW_H     = AnvilTheme.ROW_H;
+    private static final int SUB_ROW_H = AnvilTheme.SUB_ROW_H;
     private static final int LINE_H    = AnvilTheme.LINE_H;
     private static final int CARD_GAP  = AnvilTheme.CARD_GAP;
     private static final int SLOT_SIZE = AnvilTheme.SLOT_SIZE;
@@ -64,8 +63,6 @@ public class ModifierSearchTab implements AnvilTab {
     private static final int DROP_BTN_PAD  = 4;
 
     private static final String SLOT_NONE = "__none__";
-
-    /** 前置条件错误卡片的强调色（红）。 */
     private static final int CARD_ACCENT_ERROR = 0xFFFF5555;
 
     private final AnvilSidebarPanel panel;
@@ -85,6 +82,8 @@ public class ModifierSearchTab implements AnvilTab {
     private final SearchBox searchBox = new SearchBox(SearchBoxStyle.panel());
 
     private ModifierIndex.Entry selected = null;
+    private int selectedIndex = -1;
+    private final Set<String> expandedInList = new HashSet<>();
 
     private int leftListX, leftListTop, leftListW, leftListH;
     private int filterBarY;
@@ -94,8 +93,8 @@ public class ModifierSearchTab implements AnvilTab {
 
     private ItemStack lastCenterItem = ItemStack.EMPTY;
 
-    // 前置条件检查缓存：只在选中项或砧上物品变化时重算
     private ModifierIndex.Entry lastReqEntry = null;
+    private int lastReqIndex = -1;
     private ItemStack lastReqItem = ItemStack.EMPTY;
     private Optional<Component> lastReqResult = null;
 
@@ -151,7 +150,7 @@ public class ModifierSearchTab implements AnvilTab {
     }
 
     private void reloadIndex() {
-        allEntries = new ArrayList<>(ModifierIndex.get());
+        allEntries = new ArrayList<>(ModifierIndex.getGrouped());
         slotTypes = collectSlotTypes();
         System.out.println("[Anvil's Search] ModifierSearchTab reload: "
                 + allEntries.size() + " entries, slot types=" + slotTypes);
@@ -188,12 +187,21 @@ public class ModifierSearchTab implements AnvilTab {
         boolean hasItem = center != null && !center.isEmpty();
 
         List<ModifierIndex.Entry> out = new ArrayList<>();
+        int filteredLevels = 0;
         for (ModifierIndex.Entry e : allEntries) {
             if (!matches(e, k)) continue;
             if (favoritesOnly && !FavoritesStore.isFavorite(e.id)) continue;
             if (!slotFilter.isEmpty() && !matchesSlotFilter(e)) continue;
-            if (hasItem && !canApplyToCurrentItem(e)) continue;
-            out.add(e);
+
+            // ★ 用当前工具过滤 levels：只保留 toolRequirement 匹配当前工具的 LevelInfo
+            ModifierIndex.Entry displayEntry = e;
+            if (hasItem && !e.levels.isEmpty()) {
+                ModifierIndex.Entry sub = filterLevelsByTool(e, center);
+                if (sub == null) continue;      // 整条 Entry 都不适用于当前工具
+                if (sub != e) filteredLevels++;
+                displayEntry = sub;
+            }
+            out.add(displayEntry);
         }
 
         out.sort((a, b) -> {
@@ -207,8 +215,70 @@ public class ModifierSearchTab implements AnvilTab {
         scrollOffset = 0;
         rightScrollOffset = 0;
 
+        // 若 selected 还在 filtered 里，用新对象替换；否则清空
+        if (selected != null) {
+            boolean found = false;
+            for (ModifierIndex.Entry e : filtered) {
+                if (selected.id != null && selected.id.equals(e.id)) {
+                    selected = e;
+                    if (selectedIndex >= e.levels.size()) selectedIndex = -1;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                selected = null;
+                selectedIndex = -1;
+            }
+        }
+
         lastReqEntry = null;
+        lastReqIndex = -1;
         lastReqItem = ItemStack.EMPTY;
+
+        if (hasItem) {
+            System.out.println("[Anvil's Search] applyFilter: entries="
+                    + filtered.size() + " filteredLevels=" + filteredLevels);
+        }
+    }
+
+    /**
+     * 用当前工具过滤 Entry 的 levels。
+     *
+     * @return null 表示整条 Entry 都不适用于当前工具；
+     *         原对象表示所有 LevelInfo 都适用（无拷贝）；
+     *         新对象表示部分 LevelInfo 被过滤掉。
+     */
+    private static ModifierIndex.Entry filterLevelsByTool(ModifierIndex.Entry e, ItemStack tool) {
+        List<ModifierIndex.LevelInfo> kept = new ArrayList<>();
+        for (ModifierIndex.LevelInfo li : e.levels) {
+            if (matchesTool(li.toolRequirement, tool)) {
+                kept.add(li);
+            }
+        }
+        if (kept.isEmpty()) return null;
+        if (kept.size() == e.levels.size()) return e;
+
+        return new ModifierIndex.Entry(
+                e.modifier, e.recipe, e.id, e.registryPath,
+                e.color, kept.size(), kept);
+    }
+
+    /**
+     * toolRequirement 是否适用于给定工具。
+     * toolRequirement == null 视为无限制（返回 true）。
+     */
+    private static boolean matchesTool(Object toolRequirement, ItemStack tool) {
+        if (toolRequirement == null) return true;
+        if (tool == null || tool.isEmpty()) return true;
+
+        try {
+            Method test = toolRequirement.getClass().getMethod("test", ItemStack.class);
+            test.setAccessible(true);
+            Object result = test.invoke(toolRequirement, tool);
+            if (result instanceof Boolean b) return b;
+        } catch (Throwable ignored) {}
+        return true;
     }
 
     private boolean matchesSlotFilter(ModifierIndex.Entry e) {
@@ -234,12 +304,18 @@ public class ModifierSearchTab implements AnvilTab {
     }
 
     private static boolean matches(ModifierIndex.Entry e, String k) {
-        String name = entryName(e);
-        if (name.toLowerCase(Locale.ROOT).contains(k)) return true;
+        String main = entryName(e);
+        if (main.toLowerCase(Locale.ROOT).contains(k)) return true;
+        for (ModifierIndex.LevelInfo li : e.levels) {
+            try {
+                String n = li.displayName.getString();
+                if (n != null && n.toLowerCase(Locale.ROOT).contains(k)) return true;
+            } catch (Throwable ignored) {}
+        }
         if (e.registryPath != null && e.registryPath.toLowerCase(Locale.ROOT).contains(k))
             return true;
         try {
-            PinyinResult py = PinyinSearch.getPinyin(name);
+            PinyinResult py = PinyinSearch.getPinyin(main);
             if (py.fullPinyin.contains(k) || py.initials.contains(k)) return true;
         } catch (Throwable ignored) {}
         return false;
@@ -250,14 +326,17 @@ public class ModifierSearchTab implements AnvilTab {
                 && e.levels.get(0).kind == ModifierIndex.RecipeKind.INCREMENTAL;
     }
 
-    private ModifierIndex.LevelInfo getSelectedLevelInfo() {
-        if (selected == null || selected.levels.isEmpty()) return null;
-        return selected.levels.get(0);
+    private static boolean isMultiLevelEntry(ModifierIndex.Entry e) {
+        return !isIncrementalEntry(e) && e.levels.size() > 1;
     }
 
-    // ============================================================
-    // ===== 颜色工具 ============================================
-    // ============================================================
+    private ModifierIndex.LevelInfo getSelectedLevelInfo() {
+        if (selected == null || selected.levels.isEmpty()) return null;
+        if (selectedIndex >= 0 && selectedIndex < selected.levels.size()) {
+            return selected.levels.get(selectedIndex);
+        }
+        return selected.levels.get(0);
+    }
 
     private static int readableTint(int color) {
         int r = (color >> 16) & 0xFF;
@@ -280,10 +359,6 @@ public class ModifierSearchTab implements AnvilTab {
     private static int selectedRowBg(int color) {
         return (color & 0x00FFFFFF) | 0x44000000;
     }
-
-    // ============================================================
-    // ===== 渲染 =================================================
-    // ============================================================
 
     @Override
     public void renderContent(PoseStack ps, Font font,
@@ -322,10 +397,6 @@ public class ModifierSearchTab implements AnvilTab {
         return ItemStack.isSameItemSameTags(a, b) && a.getCount() == b.getCount();
     }
 
-    // ============================================================
-    // ===== 左栏 =================================================
-    // ============================================================
-
     private void renderLeft(PoseStack ps, Font font,
                             int x, int y, int w, int h,
                             int mouseX, int mouseY) {
@@ -358,7 +429,13 @@ public class ModifierSearchTab implements AnvilTab {
             return;
         }
 
-        int totalH = filtered.size() * ROW_H;
+        int totalH = 0;
+        for (ModifierIndex.Entry e : filtered) {
+            totalH += ROW_H;
+            if (isMultiLevelEntry(e) && expandedInList.contains(e.id)) {
+                totalH += e.levels.size() * SUB_ROW_H;
+            }
+        }
         maxScrollOffset = Math.max(0, totalH - listH);
         if (scrollOffset > maxScrollOffset) scrollOffset = maxScrollOffset;
 
@@ -371,9 +448,25 @@ public class ModifierSearchTab implements AnvilTab {
 
             int rowY = listTop - scrollOffset;
             for (ModifierIndex.Entry e : filtered) {
+                boolean inc = isIncrementalEntry(e);
+                boolean multi = isMultiLevelEntry(e);
+                boolean expanded = multi && expandedInList.contains(e.id);
+
                 drawEntryRow(ps, font, innerX, rowY, clipW, e,
-                        selected == e, mouseX, mouseY);
+                        multi, expanded, inc,
+                        selected == e && selectedIndex < 0,
+                        mouseX, mouseY);
                 rowY += ROW_H;
+
+                if (expanded) {
+                    for (int i = 0; i < e.levels.size(); i++) {
+                        ModifierIndex.LevelInfo li = e.levels.get(i);
+                        drawSubRow(ps, font, innerX, rowY, clipW, e, li,
+                                selected == e && selectedIndex == i,
+                                mouseX, mouseY);
+                        rowY += SUB_ROW_H;
+                    }
+                }
             }
         } finally {
             if (scissorOk) {
@@ -489,12 +582,9 @@ public class ModifierSearchTab implements AnvilTab {
         slotDropdownH = h;
     }
 
-    // ============================================================
-    // ===== 列表行（平铺）========================================
-    // ============================================================
-
     private void drawEntryRow(PoseStack ps, Font font,
                               int x, int y, int clipW, ModifierIndex.Entry e,
+                              boolean multi, boolean expanded, boolean incremental,
                               boolean sel, int mouseX, int mouseY) {
         boolean hover = mouseX >= x && mouseX <= x + clipW
                 && mouseY >= y && mouseY <= y + ROW_H;
@@ -518,7 +608,6 @@ public class ModifierSearchTab implements AnvilTab {
                 fav ? AnvilTheme.ACCENT
                         : (starHover ? AnvilTheme.TEXT_MUTED : AnvilTheme.TEXT_DIM));
 
-        boolean incremental = isIncrementalEntry(e);
         String right = "";
         int rightW = 0;
         int rightX = -1;
@@ -530,6 +619,10 @@ public class ModifierSearchTab implements AnvilTab {
             rightW = font.width(icon) + 3;
             rightX = x + clipW - rightW - 2;
             isIconLightning = true;
+        } else if (multi) {
+            right = expanded ? "\u25BC" : "\u25B6";
+            rightW = font.width(right) + 3;
+            rightX = x + clipW - rightW - 2;
         }
 
         int textX = starX + STAR_W + 4;
@@ -565,9 +658,31 @@ public class ModifierSearchTab implements AnvilTab {
         }
     }
 
-    // ============================================================
-    // ===== 右栏：矩阵 + 卡片 ====================================
-    // ============================================================
+    private void drawSubRow(PoseStack ps, Font font,
+                            int x, int y, int clipW,
+                            ModifierIndex.Entry e, ModifierIndex.LevelInfo li,
+                            boolean sel, int mouseX, int mouseY) {
+        boolean hover = mouseX >= x && mouseX <= x + clipW
+                && mouseY >= y && mouseY <= y + SUB_ROW_H;
+
+        if (sel) {
+            GuiComponent.fill(ps, x, y, x + clipW, y + SUB_ROW_H,
+                    selectedRowBg(e.color));
+        } else if (hover) {
+            GuiComponent.fill(ps, x, y, x + clipW, y + SUB_ROW_H,
+                    AnvilTheme.ROW_HOVER);
+        }
+
+        String name = li.displayName.getString();
+        String display = font.width(name) > clipW - 26
+                ? font.plainSubstrByWidth(name, clipW - 30) + "..."
+                : name;
+
+        int textY = AnvilTheme.centeredTextY(y, SUB_ROW_H, font);
+        font.draw(ps, display, x + 20, textY,
+                sel ? readableTint(e.color)
+                        : (hover ? AnvilTheme.TEXT_PRIMARY : e.color));
+    }
 
     @SuppressWarnings("unchecked")
     private void renderRight(PoseStack ps, Font font,
@@ -659,7 +774,7 @@ public class ModifierSearchTab implements AnvilTab {
         int maxTextW = w - AnvilTheme.PAD_L * 2 - 14;
         List<Card> cards = new ArrayList<>();
 
-        String titleText = entryName(selected);
+        String titleText = selLi.displayName.getString();
         MutableComponent titleComp = new TextComponent(titleText)
                 .withStyle(Style.EMPTY
                         .withColor(TextColor.fromRgb(selected.color))
@@ -671,33 +786,20 @@ public class ModifierSearchTab implements AnvilTab {
 
         int afterTitleY = titleY + LINE_H + 6;
 
-        // ============================================================
-        // 前置条件检查（缓存：只在选中项或砧上物品变化时重算）
-        // ============================================================
         ItemStack currentAnvilItem = AnvilSlotAccess.getCenterItem();
         if (currentAnvilItem == null) currentAnvilItem = ItemStack.EMPTY;
 
         boolean needRecheck = (selected != lastReqEntry)
+                || (selectedIndex != lastReqIndex)
                 || !ItemStack.isSameItemSameTags(currentAnvilItem, lastReqItem);
 
         if (needRecheck) {
-            System.out.println("[Anvil's Search] === recheck requirements ==="
-                    + " selected=" + entryName(selected)
-                    + " anvilItem=" + (currentAnvilItem.isEmpty()
-                    ? "EMPTY"
-                    : currentAnvilItem.getItem().getRegistryName()));
-
-            Object container = getAnvilContainer();
-            lastReqResult = checkRequirements(selected.recipe, container);
+            Object container = makeContainer(currentAnvilItem);
+            Object recipeForCheck = selLi.recipe != null ? selLi.recipe : selected.recipe;
+            lastReqResult = checkRequirements(recipeForCheck, container);
             lastReqEntry = selected;
+            lastReqIndex = selectedIndex;
             lastReqItem = currentAnvilItem.copy();
-
-            System.out.println("[Anvil's Search] === result = "
-                    + (lastReqResult == null
-                    ? "null(cannot decide)"
-                    : lastReqResult.isPresent()
-                    ? "FAIL: " + lastReqResult.get().getString()
-                    : "PASS"));
         }
 
         Optional<Component> reqCheck = lastReqResult;
@@ -709,7 +811,6 @@ public class ModifierSearchTab implements AnvilTab {
                     "gui.anvilssearch.modifier.requirements_error").getString();
 
             List<Component> errLines = new ArrayList<>();
-            // 只有当消息存在且与标题不同时，才作为内容显示
             if (msgStr != null && !msgStr.isEmpty() && !msgStr.equals(titleStr)) {
                 List<Component> wrapped = wrapComponent(font, msg, maxTextW);
                 for (Component wc : wrapped) {
@@ -723,9 +824,6 @@ public class ModifierSearchTab implements AnvilTab {
                     errLines));
         }
 
-        // ============================================================
-        // 材料卡片
-        // ============================================================
         List<Component> c2 = new ArrayList<>();
         c2.add(buildSlotLine(selLi));
 
@@ -755,9 +853,6 @@ public class ModifierSearchTab implements AnvilTab {
         }
         cards.add(new Card(AnvilTheme.ACCENT_CYAN, null, c2));
 
-        // ============================================================
-        // 描述卡片
-        // ============================================================
         List<Component> c3 = new ArrayList<>();
         List<Component> desc = selected.getDescriptionList(selLi.level);
         if (desc.isEmpty()) {
@@ -797,95 +892,51 @@ public class ModifierSearchTab implements AnvilTab {
         }
     }
 
-    // ============================================================
-    // ===== 前置条件动态检查 =====================================
-    // ============================================================
-
-    /**
-     * 从当前 Screen 的 Menu 中获取工匠砧的容器。
-     * <p>
-     * Menu 本身或它的某个字段实现了 {@code ITinkerStationContainer}。
-     * 返回的容器可用于调用 {@code getValidatedResult}。
-     */
-    private static Object getAnvilContainer() {
+    private static Object makeContainer(ItemStack toolStack) {
+        if (toolStack == null || toolStack.isEmpty()) return null;
         try {
-            // 1. 获取工匠砧中心物品
-            ItemStack held = AnvilSlotAccess.getCenterItem();
-            if (held == null || held.isEmpty()) {
-                System.out.println("[Anvil's Search] getAnvilContainer: anvil center empty");
-                return null;
-            }
-
-            // 2. 构造 ToolStack
             Class<?> modifiableClass = Class.forName(
                     "slimeknights.tconstruct.library.tools.item.IModifiable");
-            if (!modifiableClass.isInstance(held.getItem())) {
-                System.out.println("[Anvil's Search] getAnvilContainer: not a modifiable tool");
-                return null;
-            }
+            if (!modifiableClass.isInstance(toolStack.getItem())) return null;
 
-            Class<?> toolStackClass = Class.forName(
+            Class<?> tsClass = Class.forName(
                     "slimeknights.tconstruct.library.tools.nbt.ToolStack");
-            Method fromMethod = toolStackClass.getMethod("from", ItemStack.class);
-            fromMethod.setAccessible(true);
-            Object toolStack = fromMethod.invoke(null, held);
-            if (toolStack == null) {
-                System.out.println("[Anvil's Search] getAnvilContainer: ToolStack is null");
-                return null;
-            }
-            System.out.println("[Anvil's Search] getAnvilContainer: ToolStack created from anvil item");
+            Method from = tsClass.getMethod("from", ItemStack.class);
+            from.setAccessible(true);
+            Object tool = from.invoke(null, toolStack);
+            if (tool == null) return null;
 
-            // 3. 用 Proxy 构造 ITinkerStationContainer
             Class<?> containerClass = Class.forName(
                     "slimeknights.tconstruct.library.recipe.tinkerstation.ITinkerStationContainer");
-
-            Object container = java.lang.reflect.Proxy.newProxyInstance(
+            return Proxy.newProxyInstance(
                     containerClass.getClassLoader(),
                     new Class<?>[]{containerClass},
                     (proxy, method, args) -> {
                         String mn = method.getName();
-                        if ("getTinkerable".equals(mn) && method.getParameterCount() == 0) {
-                            return toolStack;  // 返回 ToolStack
-                        }
-                        if ("getTinkerableStack".equals(mn) && method.getParameterCount() == 0) {
-                            return held;       // 返回 ItemStack
-                        }
-                        // 其他方法返回默认值
-                        Class<?> returnType = method.getReturnType();
-                        if (returnType == boolean.class) return false;
-                        if (returnType == int.class) return 0;
-                        if (returnType == long.class) return 0L;
-                        if (returnType == float.class) return 0f;
-                        if (returnType == double.class) return 0d;
+                        if ("getTinkerable".equals(mn) && method.getParameterCount() == 0)
+                            return tool;
+                        if ("getTinkerableStack".equals(mn) && method.getParameterCount() == 0)
+                            return toolStack;
+                        Class<?> rt = method.getReturnType();
+                        if (rt == boolean.class) return false;
+                        if (rt == int.class) return 0;
+                        if (rt == long.class) return 0L;
+                        if (rt == float.class) return 0f;
+                        if (rt == double.class) return 0d;
                         return null;
                     });
-
-            System.out.println("[Anvil's Search] getAnvilContainer: proxy container created");
-            return container;
-
         } catch (Throwable t) {
-            System.out.println("[Anvil's Search] getAnvilContainer failed: " + t);
             return null;
         }
     }
 
-    /**
-     * 检查配方是否满足给定容器（Menu / 容器对象）的前置条件。
-     * <p>
-     * 调用 {@code ITinkerStationRecipe#getValidatedResult(ITinkerStationContainer, RegistryAccess)}。
-     *
-     * @return null 无法判断；Optional.empty() 满足；Optional.of(Component) 不满足及原因。
-     */
     private static Optional<Component> checkRequirements(Object recipe, Object container) {
         if (recipe == null || container == null) return null;
 
         try {
             Class<?> containerClass = Class.forName(
                     "slimeknights.tconstruct.library.recipe.tinkerstation.ITinkerStationContainer");
-            if (!containerClass.isInstance(container)) {
-                System.out.println("[Anvil's Search] checkRequirements: container is not ITinkerStationContainer");
-                return null;
-            }
+            if (!containerClass.isInstance(container)) return null;
 
             Method validateMethod = null;
             for (Method m : recipe.getClass().getMethods()) {
@@ -898,11 +949,7 @@ public class ModifierSearchTab implements AnvilTab {
                     if (m.getParameterCount() == 1) { validateMethod = m; break; }
                 }
             }
-            if (validateMethod == null) {
-                System.out.println("[Anvil's Search] NO getValidatedResult on "
-                        + recipe.getClass().getName());
-                return null;
-            }
+            if (validateMethod == null) return null;
 
             Object registryAccess = Minecraft.getInstance().level != null
                     ? Minecraft.getInstance().level.registryAccess() : null;
@@ -927,19 +974,12 @@ public class ModifierSearchTab implements AnvilTab {
 
             Component message = extractFailureMessage(result);
             if (message != null) return Optional.of(message);
-
-            System.out.println("[Anvil's Search] cannot extract failure message from "
-                    + result.getClass().getName());
-            return null;
+            return Optional.of(new TextComponent(""));
         } catch (Throwable t) {
-            System.out.println("[Anvil's Search] checkRequirements failed: " + t);
+            return null;
         }
-        return null;
     }
 
-    /**
-     * 多路径尝试从 RecipeResult 提取失败消息。
-     */
     private static Component extractFailureMessage(Object result) {
         try {
             Method m = result.getClass().getMethod("getMessage");
@@ -1123,58 +1163,6 @@ public class ModifierSearchTab implements AnvilTab {
         } catch (Throwable ignored) {}
     }
 
-    private boolean canApplyToCurrentItem(ModifierIndex.Entry entry) {
-        if (entry == null || entry.levels.isEmpty()) return true;
-
-        ModifierIndex.LevelInfo li = entry.levels.get(0);
-        if (li.toolFilter == null) return true;
-
-        ItemStack item = AnvilSlotAccess.getCenterItem();
-        if (item == null || item.isEmpty()) return true;
-
-        Boolean r = testIngredient(li.toolFilter, item);
-        if (r == null) return true;
-        return r;
-    }
-
-    private static Boolean testIngredient(Object ingredient, ItemStack stack) {
-        if (ingredient == null || stack == null || stack.isEmpty()) return null;
-
-        try {
-            Method m = ingredient.getClass().getMethod("test", ItemStack.class);
-            m.setAccessible(true);
-            Object r = m.invoke(ingredient, stack);
-            if (r instanceof Boolean b) return b;
-        } catch (Throwable ignored) {}
-
-        try {
-            Method m = ingredient.getClass().getMethod("getItems");
-            m.setAccessible(true);
-            Object v = m.invoke(ingredient);
-            if (v instanceof ItemStack[] arr) {
-                for (ItemStack s : arr) {
-                    if (ItemStack.isSameItemSameTags(s, stack)) return true;
-                }
-                return false;
-            }
-            if (v instanceof Collection<?> col) {
-                for (Object o : col) {
-                    if (o instanceof ItemStack s
-                            && ItemStack.isSameItemSameTags(s, stack)) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-        } catch (Throwable ignored) {}
-
-        return null;
-    }
-
-    // ============================================================
-    // ===== 交互 =================================================
-    // ============================================================
-
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
         if (slotDropdownOpen) {
@@ -1248,6 +1236,10 @@ public class ModifierSearchTab implements AnvilTab {
 
             int rowY = leftListTop - scrollOffset;
             for (ModifierIndex.Entry e : filtered) {
+                boolean inc = isIncrementalEntry(e);
+                boolean multi = isMultiLevelEntry(e);
+                boolean expanded = multi && expandedInList.contains(e.id);
+
                 if (my >= rowY && my <= rowY + ROW_H) {
                     int starX = leftListX + 3;
                     if (mx >= starX - 2 && mx <= starX + STAR_W + 2) {
@@ -1255,13 +1247,43 @@ public class ModifierSearchTab implements AnvilTab {
                         if (favoritesOnly) applyFilter(panel.getSearchKeyword());
                         return true;
                     }
+                    if (inc) {
+                        selected = e;
+                        selectedIndex = -1;
+                        rightScrollOffset = 0;
+                        lastReqEntry = null;
+                        lastReqIndex = -1;
+                        lastReqItem = ItemStack.EMPTY;
+                        return true;
+                    }
+                    if (multi) {
+                        if (expanded) expandedInList.remove(e.id);
+                        else expandedInList.add(e.id);
+                    }
                     selected = e;
+                    selectedIndex = -1;
                     rightScrollOffset = 0;
                     lastReqEntry = null;
+                    lastReqIndex = -1;
                     lastReqItem = ItemStack.EMPTY;
                     return true;
                 }
                 rowY += ROW_H;
+
+                if (expanded) {
+                    for (int i = 0; i < e.levels.size(); i++) {
+                        if (my >= rowY && my <= rowY + SUB_ROW_H) {
+                            selected = e;
+                            selectedIndex = i;
+                            rightScrollOffset = 0;
+                            lastReqEntry = null;
+                            lastReqIndex = -1;
+                            lastReqItem = ItemStack.EMPTY;
+                            return true;
+                        }
+                        rowY += SUB_ROW_H;
+                    }
+                }
             }
         }
         return false;
