@@ -63,6 +63,9 @@ public class ModifierSearchTab implements AnvilTab {
 
     private static final String SLOT_NONE = "__none__";
 
+    /** 前置条件错误卡片的强调色（红）。 */
+    private static final int CARD_ACCENT_ERROR = 0xFFFF5555;
+
     private final AnvilSidebarPanel panel;
 
     private List<ModifierIndex.Entry> allEntries = new ArrayList<>();
@@ -658,14 +661,33 @@ public class ModifierSearchTab implements AnvilTab {
 
         int afterTitleY = titleY + LINE_H + 6;
 
+        // ============================================================
+        // ★ 前置条件错误卡片（独立，红色，放在最上方）
+        // ============================================================
+        if (selLi.requirementsError != null) {
+            List<Component> errLines = new ArrayList<>();
+            // 用 wrapComponent 按宽度自动换行（保留 § 颜色代码）
+            List<Component> wrapped = wrapComponent(font,
+                    new TextComponent(selLi.requirementsError), maxTextW);
+            for (Component wc : wrapped) {
+                // 每行统一加上灰色前缀，避免换行后丢失颜色
+                errLines.add(new TextComponent("\u00A77" + wc.getString()));
+            }
+            if (errLines.isEmpty()) {
+                errLines.add(new TextComponent("\u00A77..."));
+            }
+            cards.add(new Card(
+                    CARD_ACCENT_ERROR,
+                    "\u00A7c" + new TranslatableComponent(
+                            "gui.anvilssearch.modifier.requirements_error").getString(),
+                    errLines));
+        }
+
+        // ============================================================
+        // 材料卡片（不再包含前置条件错误）
+        // ============================================================
         List<Component> c2 = new ArrayList<>();
         c2.add(buildSlotLine(selLi));
-
-        if (selLi.requirementsError != null) {
-            c2.add(new TextComponent("\u00A7c" + new TranslatableComponent(
-                    "gui.anvilssearch.modifier.requirements_error").getString()));
-            c2.add(new TextComponent("\u00A77" + selLi.requirementsError));
-        }
 
         if (selLi.kind == ModifierIndex.RecipeKind.INCREMENTAL
                 && selLi.amountPerInput > 0 && selLi.neededPerLevel > 0) {
@@ -693,6 +715,9 @@ public class ModifierSearchTab implements AnvilTab {
         }
         cards.add(new Card(AnvilTheme.ACCENT_CYAN, null, c2));
 
+        // ============================================================
+        // 描述卡片
+        // ============================================================
         List<Component> c3 = new ArrayList<>();
         List<Component> desc = selected.getDescriptionList(selLi.level);
         if (desc.isEmpty()) {
@@ -794,6 +819,11 @@ public class ModifierSearchTab implements AnvilTab {
         return y + cardH + CARD_GAP;
     }
 
+    /**
+     * 按宽度自动换行。
+     * ★ 优先在空格处换行（不切英文单词）；没有空格可用时才硬切。
+     * ★ 换行时跳过 § 颜色代码，避免把 §X 从中间切断。
+     */
     private static List<Component> wrapComponent(Font font, Component src, int maxW) {
         List<Component> out = new ArrayList<>();
         if (src == null) return out;
@@ -806,15 +836,55 @@ public class ModifierSearchTab implements AnvilTab {
             out.add(new TextComponent(text));
             return out;
         }
+
         int start = 0;
         int len = text.length();
         while (start < len) {
-            int end = start + 1;
-            while (end <= len && font.width(text.substring(start, end)) <= maxW) end++;
-            end--;
-            if (end <= start) end = start + 1;
-            out.add(new TextComponent(text.substring(start, Math.min(end, len))));
-            start = Math.min(end, len);
+            int end = start;
+            int lastSpace = -1;
+
+            while (end < len) {
+                char c = text.charAt(end);
+
+                // 跳过 § 颜色代码
+                if (c == '\u00A7' && end + 1 < len) {
+                    // 检查是否已经超过宽度：即使加了颜色代码也不影响宽度判断
+                    // 先检查到 end+1 为止的宽度
+                    if (font.width(text.substring(start, Math.min(end + 2, len))) > maxW
+                            && end > start) {
+                        break;
+                    }
+                    end += 2;
+                    continue;
+                }
+
+                if (font.width(text.substring(start, end + 1)) > maxW) {
+                    break;
+                }
+                if (c == ' ') {
+                    lastSpace = end;
+                }
+                end++;
+            }
+
+            if (end >= len) {
+                // 剩余部分一次放下
+                out.add(new TextComponent(text.substring(start)));
+                break;
+            }
+
+            int cut;
+            if (lastSpace > start) {
+                // 从空格后换行（空格归上一行）
+                cut = lastSpace + 1;
+            } else {
+                // 没有空格可断，只能硬切
+                cut = end;
+            }
+            if (cut <= start) cut = start + 1;
+
+            out.add(new TextComponent(text.substring(start, cut)));
+            start = cut;
         }
         return out;
     }
@@ -843,9 +913,6 @@ public class ModifierSearchTab implements AnvilTab {
         } catch (Throwable ignored) {}
     }
 
-    /**
-     * 照搬 JEI：不做工具过滤，列表显示全部强化。
-     */
     private boolean canApplyToCurrentItem(ModifierIndex.Entry entry) {
         if (entry == null || entry.levels.isEmpty()) return true;
 
