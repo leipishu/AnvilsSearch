@@ -28,12 +28,14 @@ import top.leipishu.tinkerssearch.client.render.ScissorHelper;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch.PinyinResult;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
@@ -91,6 +93,11 @@ public class ModifierSearchTab implements AnvilTab {
     private int rightMaxScroll = 0;
 
     private ItemStack lastCenterItem = ItemStack.EMPTY;
+
+    // 前置条件检查缓存：只在选中项或砧上物品变化时重算
+    private ModifierIndex.Entry lastReqEntry = null;
+    private ItemStack lastReqItem = ItemStack.EMPTY;
+    private Optional<Component> lastReqResult = null;
 
     public ModifierSearchTab(AnvilSidebarPanel panel) {
         this.panel = panel;
@@ -199,6 +206,9 @@ public class ModifierSearchTab implements AnvilTab {
         filtered = out;
         scrollOffset = 0;
         rightScrollOffset = 0;
+
+        lastReqEntry = null;
+        lastReqItem = ItemStack.EMPTY;
     }
 
     private boolean matchesSlotFilter(ModifierIndex.Entry e) {
@@ -662,29 +672,59 @@ public class ModifierSearchTab implements AnvilTab {
         int afterTitleY = titleY + LINE_H + 6;
 
         // ============================================================
-        // ★ 前置条件错误卡片（独立，红色，放在最上方）
+        // 前置条件检查（缓存：只在选中项或砧上物品变化时重算）
         // ============================================================
-        if (selLi.requirementsError != null) {
+        ItemStack currentAnvilItem = AnvilSlotAccess.getCenterItem();
+        if (currentAnvilItem == null) currentAnvilItem = ItemStack.EMPTY;
+
+        boolean needRecheck = (selected != lastReqEntry)
+                || !ItemStack.isSameItemSameTags(currentAnvilItem, lastReqItem);
+
+        if (needRecheck) {
+            System.out.println("[Anvil's Search] === recheck requirements ==="
+                    + " selected=" + entryName(selected)
+                    + " anvilItem=" + (currentAnvilItem.isEmpty()
+                    ? "EMPTY"
+                    : currentAnvilItem.getItem().getRegistryName()));
+
+            Object container = getAnvilContainer();
+            lastReqResult = checkRequirements(selected.recipe, container);
+            lastReqEntry = selected;
+            lastReqItem = currentAnvilItem.copy();
+
+            System.out.println("[Anvil's Search] === result = "
+                    + (lastReqResult == null
+                    ? "null(cannot decide)"
+                    : lastReqResult.isPresent()
+                    ? "FAIL: " + lastReqResult.get().getString()
+                    : "PASS"));
+        }
+
+        Optional<Component> reqCheck = lastReqResult;
+
+        if (reqCheck != null && reqCheck.isPresent()) {
+            Component msg = reqCheck.get();
+            String msgStr = msg.getString();
+            String titleStr = new TranslatableComponent(
+                    "gui.anvilssearch.modifier.requirements_error").getString();
+
             List<Component> errLines = new ArrayList<>();
-            // 用 wrapComponent 按宽度自动换行（保留 § 颜色代码）
-            List<Component> wrapped = wrapComponent(font,
-                    new TextComponent(selLi.requirementsError), maxTextW);
-            for (Component wc : wrapped) {
-                // 每行统一加上灰色前缀，避免换行后丢失颜色
-                errLines.add(new TextComponent("\u00A77" + wc.getString()));
+            // 只有当消息存在且与标题不同时，才作为内容显示
+            if (msgStr != null && !msgStr.isEmpty() && !msgStr.equals(titleStr)) {
+                List<Component> wrapped = wrapComponent(font, msg, maxTextW);
+                for (Component wc : wrapped) {
+                    errLines.add(new TextComponent("\u00A77" + wc.getString()));
+                }
             }
-            if (errLines.isEmpty()) {
-                errLines.add(new TextComponent("\u00A77..."));
-            }
+
             cards.add(new Card(
                     CARD_ACCENT_ERROR,
-                    "\u00A7c" + new TranslatableComponent(
-                            "gui.anvilssearch.modifier.requirements_error").getString(),
+                    "\u00A7c" + titleStr,
                     errLines));
         }
 
         // ============================================================
-        // 材料卡片（不再包含前置条件错误）
+        // 材料卡片
         // ============================================================
         List<Component> c2 = new ArrayList<>();
         c2.add(buildSlotLine(selLi));
@@ -757,6 +797,187 @@ public class ModifierSearchTab implements AnvilTab {
         }
     }
 
+    // ============================================================
+    // ===== 前置条件动态检查 =====================================
+    // ============================================================
+
+    /**
+     * 从当前 Screen 的 Menu 中获取工匠砧的容器。
+     * <p>
+     * Menu 本身或它的某个字段实现了 {@code ITinkerStationContainer}。
+     * 返回的容器可用于调用 {@code getValidatedResult}。
+     */
+    private static Object getAnvilContainer() {
+        try {
+            // 1. 获取工匠砧中心物品
+            ItemStack held = AnvilSlotAccess.getCenterItem();
+            if (held == null || held.isEmpty()) {
+                System.out.println("[Anvil's Search] getAnvilContainer: anvil center empty");
+                return null;
+            }
+
+            // 2. 构造 ToolStack
+            Class<?> modifiableClass = Class.forName(
+                    "slimeknights.tconstruct.library.tools.item.IModifiable");
+            if (!modifiableClass.isInstance(held.getItem())) {
+                System.out.println("[Anvil's Search] getAnvilContainer: not a modifiable tool");
+                return null;
+            }
+
+            Class<?> toolStackClass = Class.forName(
+                    "slimeknights.tconstruct.library.tools.nbt.ToolStack");
+            Method fromMethod = toolStackClass.getMethod("from", ItemStack.class);
+            fromMethod.setAccessible(true);
+            Object toolStack = fromMethod.invoke(null, held);
+            if (toolStack == null) {
+                System.out.println("[Anvil's Search] getAnvilContainer: ToolStack is null");
+                return null;
+            }
+            System.out.println("[Anvil's Search] getAnvilContainer: ToolStack created from anvil item");
+
+            // 3. 用 Proxy 构造 ITinkerStationContainer
+            Class<?> containerClass = Class.forName(
+                    "slimeknights.tconstruct.library.recipe.tinkerstation.ITinkerStationContainer");
+
+            Object container = java.lang.reflect.Proxy.newProxyInstance(
+                    containerClass.getClassLoader(),
+                    new Class<?>[]{containerClass},
+                    (proxy, method, args) -> {
+                        String mn = method.getName();
+                        if ("getTinkerable".equals(mn) && method.getParameterCount() == 0) {
+                            return toolStack;  // 返回 ToolStack
+                        }
+                        if ("getTinkerableStack".equals(mn) && method.getParameterCount() == 0) {
+                            return held;       // 返回 ItemStack
+                        }
+                        // 其他方法返回默认值
+                        Class<?> returnType = method.getReturnType();
+                        if (returnType == boolean.class) return false;
+                        if (returnType == int.class) return 0;
+                        if (returnType == long.class) return 0L;
+                        if (returnType == float.class) return 0f;
+                        if (returnType == double.class) return 0d;
+                        return null;
+                    });
+
+            System.out.println("[Anvil's Search] getAnvilContainer: proxy container created");
+            return container;
+
+        } catch (Throwable t) {
+            System.out.println("[Anvil's Search] getAnvilContainer failed: " + t);
+            return null;
+        }
+    }
+
+    /**
+     * 检查配方是否满足给定容器（Menu / 容器对象）的前置条件。
+     * <p>
+     * 调用 {@code ITinkerStationRecipe#getValidatedResult(ITinkerStationContainer, RegistryAccess)}。
+     *
+     * @return null 无法判断；Optional.empty() 满足；Optional.of(Component) 不满足及原因。
+     */
+    private static Optional<Component> checkRequirements(Object recipe, Object container) {
+        if (recipe == null || container == null) return null;
+
+        try {
+            Class<?> containerClass = Class.forName(
+                    "slimeknights.tconstruct.library.recipe.tinkerstation.ITinkerStationContainer");
+            if (!containerClass.isInstance(container)) {
+                System.out.println("[Anvil's Search] checkRequirements: container is not ITinkerStationContainer");
+                return null;
+            }
+
+            Method validateMethod = null;
+            for (Method m : recipe.getClass().getMethods()) {
+                if (!"getValidatedResult".equals(m.getName())) continue;
+                if (m.getParameterCount() == 2) { validateMethod = m; break; }
+            }
+            if (validateMethod == null) {
+                for (Method m : recipe.getClass().getMethods()) {
+                    if (!"getValidatedResult".equals(m.getName())) continue;
+                    if (m.getParameterCount() == 1) { validateMethod = m; break; }
+                }
+            }
+            if (validateMethod == null) {
+                System.out.println("[Anvil's Search] NO getValidatedResult on "
+                        + recipe.getClass().getName());
+                return null;
+            }
+
+            Object registryAccess = Minecraft.getInstance().level != null
+                    ? Minecraft.getInstance().level.registryAccess() : null;
+
+            validateMethod.setAccessible(true);
+            Object result = validateMethod.getParameterCount() == 2
+                    ? validateMethod.invoke(recipe, container, registryAccess)
+                    : validateMethod.invoke(recipe, container);
+
+            if (result == null) return Optional.empty();
+
+            Method isSuccessMethod = null;
+            for (Method m : result.getClass().getMethods()) {
+                if ("isSuccess".equals(m.getName()) && m.getParameterCount() == 0) {
+                    isSuccessMethod = m; break;
+                }
+            }
+            if (isSuccessMethod == null) return null;
+
+            boolean success = (boolean) isSuccessMethod.invoke(result);
+            if (success) return Optional.empty();
+
+            Component message = extractFailureMessage(result);
+            if (message != null) return Optional.of(message);
+
+            System.out.println("[Anvil's Search] cannot extract failure message from "
+                    + result.getClass().getName());
+            return null;
+        } catch (Throwable t) {
+            System.out.println("[Anvil's Search] checkRequirements failed: " + t);
+        }
+        return null;
+    }
+
+    /**
+     * 多路径尝试从 RecipeResult 提取失败消息。
+     */
+    private static Component extractFailureMessage(Object result) {
+        try {
+            Method m = result.getClass().getMethod("getMessage");
+            m.setAccessible(true);
+            Object v = m.invoke(result);
+            if (v instanceof Component c) return c;
+            if (v instanceof String s && !s.isEmpty()) return new TextComponent(s);
+        } catch (Throwable ignored) {}
+
+        try {
+            Method m = result.getClass().getMethod("getMessageComponent");
+            m.setAccessible(true);
+            Object v = m.invoke(result);
+            if (v instanceof Component c) return c;
+            if (v instanceof String s && !s.isEmpty()) return new TextComponent(s);
+        } catch (Throwable ignored) {}
+
+        try {
+            Method m = result.getClass().getMethod("getError");
+            m.setAccessible(true);
+            Object v = m.invoke(result);
+            if (v instanceof Component c) return c;
+            if (v instanceof String s && !s.isEmpty()) return new TextComponent(s);
+        } catch (Throwable ignored) {}
+
+        for (String fname : new String[]{"message", "error", "failureMessage", "reason"}) {
+            try {
+                Field f = result.getClass().getDeclaredField(fname);
+                f.setAccessible(true);
+                Object v = f.get(result);
+                if (v instanceof Component c) return c;
+                if (v instanceof String s && !s.isEmpty()) return new TextComponent(s);
+            } catch (Throwable ignored) {}
+        }
+
+        return null;
+    }
+
     private static Component buildSlotLine(ModifierIndex.LevelInfo li) {
         StringBuilder sb = new StringBuilder();
         sb.append("\u00A7b")
@@ -819,11 +1040,6 @@ public class ModifierSearchTab implements AnvilTab {
         return y + cardH + CARD_GAP;
     }
 
-    /**
-     * 按宽度自动换行。
-     * ★ 优先在空格处换行（不切英文单词）；没有空格可用时才硬切。
-     * ★ 换行时跳过 § 颜色代码，避免把 §X 从中间切断。
-     */
     private static List<Component> wrapComponent(Font font, Component src, int maxW) {
         List<Component> out = new ArrayList<>();
         if (src == null) return out;
@@ -846,10 +1062,7 @@ public class ModifierSearchTab implements AnvilTab {
             while (end < len) {
                 char c = text.charAt(end);
 
-                // 跳过 § 颜色代码
                 if (c == '\u00A7' && end + 1 < len) {
-                    // 检查是否已经超过宽度：即使加了颜色代码也不影响宽度判断
-                    // 先检查到 end+1 为止的宽度
                     if (font.width(text.substring(start, Math.min(end + 2, len))) > maxW
                             && end > start) {
                         break;
@@ -868,17 +1081,14 @@ public class ModifierSearchTab implements AnvilTab {
             }
 
             if (end >= len) {
-                // 剩余部分一次放下
                 out.add(new TextComponent(text.substring(start)));
                 break;
             }
 
             int cut;
             if (lastSpace > start) {
-                // 从空格后换行（空格归上一行）
                 cut = lastSpace + 1;
             } else {
-                // 没有空格可断，只能硬切
                 cut = end;
             }
             if (cut <= start) cut = start + 1;
@@ -1047,6 +1257,8 @@ public class ModifierSearchTab implements AnvilTab {
                     }
                     selected = e;
                     rightScrollOffset = 0;
+                    lastReqEntry = null;
+                    lastReqItem = ItemStack.EMPTY;
                     return true;
                 }
                 rowY += ROW_H;

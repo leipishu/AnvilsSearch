@@ -24,6 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *   4. 变体名称检测 recipe.tconstruct 前缀，跳过未翻译的 key。
  *   5. 剔除材料为空的空配方。
  *   6. 非增量配方且 maxLevel > baseLevel 时，展开成多个 Entry（如阅历 I~V）。
+ *   7. Entry 保留原始 display 配方对象，供 UI 做前置条件动态检查。
  */
 public final class ModifierIndex {
 
@@ -97,15 +98,18 @@ public final class ModifierIndex {
 
     public static final class Entry {
         public final Object modifier;
+        /** ★ 原始 display 配方对象，用于 UI 调用 getValidatedResult */
+        public final Object recipe;
         public final String id;
         public final String registryPath;
         public final int color;
         public final int maxLevel;
         public final List<LevelInfo> levels;
 
-        public Entry(Object modifier, String id, String registryPath,
+        public Entry(Object modifier, Object recipe, String id, String registryPath,
                      int color, int maxLevel, List<LevelInfo> levels) {
             this.modifier = modifier;
+            this.recipe = recipe;
             this.id = id;
             this.registryPath = registryPath;
             this.color = color;
@@ -221,7 +225,7 @@ public final class ModifierIndex {
 
         System.out.println("[Anvil's Search] TINKER_STATION candidates: " + candidates.size());
 
-        // 展开 IMultiRecipe（仅 MultilevelModifierRecipe 实现此接口）
+        // 展开 IMultiRecipe
         List<Object> displayRecipes = new ArrayList<>();
         for (Object r : candidates) {
             List<?> subs = tryExpandMultiRecipe(r);
@@ -241,7 +245,6 @@ public final class ModifierIndex {
 
         if (displayRecipes.isEmpty()) return Collections.emptyList();
 
-        // ★ 每个 display 可能展开成多条 Entry（可升级配方）
         List<Entry> result = new ArrayList<>();
         int skippedEmpty = 0;
         for (Object display : displayRecipes) {
@@ -263,9 +266,6 @@ public final class ModifierIndex {
         return result;
     }
 
-    /**
-     * 单个 display 配方 → 可能多条 Entry（可升级配方会展开）。
-     */
     private static List<Entry> buildEntriesFromDisplay(Object display) {
         List<Entry> entries = new ArrayList<>();
         try {
@@ -285,7 +285,6 @@ public final class ModifierIndex {
 
             MaterialResult mr = readMaterialsFromDisplay(display);
 
-            // ★ 剔除材料为空的空配方
             if (mr.icons.isEmpty()) {
                 return entries;
             }
@@ -308,7 +307,6 @@ public final class ModifierIndex {
                 if (neededPerLevel <= 0) neededPerLevel = 1;
             }
 
-            // 前置条件（翻译处理）
             String requirementsError = null;
             if (boolOf(display, "hasRequirements")) {
                 Object err = call(display, "getRequirementsError");
@@ -319,7 +317,6 @@ public final class ModifierIndex {
                 }
             }
 
-            // 变体名称（跳过未翻译的 key）
             Component variant = null;
             Object variantObj = call(display, "getVariant");
             if (variantObj instanceof Component vc) {
@@ -337,7 +334,6 @@ public final class ModifierIndex {
             int colon = modifierId.indexOf(':');
             if (colon >= 0) path = modifierId.substring(colon + 1);
 
-            // ★ 非增量配方且 maxLevel > baseLevel → 展开为多个 Entry
             if (!incremental && maxLevel > baseLevel) {
                 for (int level = baseLevel; level <= maxLevel; level++) {
                     Component dn = extractDisplayName(modifier, level);
@@ -346,7 +342,7 @@ public final class ModifierIndex {
                             requirementsError, variant);
 
                     String id = modifierId + "#" + level;
-                    entries.add(new Entry(modifier, id, path, color, maxLevel,
+                    entries.add(new Entry(modifier, display, id, path, color, maxLevel,
                             Collections.singletonList(lv)));
                 }
             } else {
@@ -356,7 +352,7 @@ public final class ModifierIndex {
                         requirementsError, variant);
 
                 String id = modifierId + "#" + baseLevel;
-                entries.add(new Entry(modifier, id, path, color, maxLevel,
+                entries.add(new Entry(modifier, display, id, path, color, maxLevel,
                         Collections.singletonList(lv)));
             }
         } catch (Throwable t) {
@@ -369,10 +365,6 @@ public final class ModifierIndex {
     // ===== 材料读取 =============================================
     // ============================================================
 
-    /**
-     * 增量配方：调 getInputs() 获取完整槽位材料。
-     * 非增量配方：调 getDisplayItems(slot) 逐槽读取。
-     */
     @SuppressWarnings("unchecked")
     private static MaterialResult readMaterialsFromDisplay(Object display) {
         List<ItemStack> icons = new ArrayList<>();
@@ -404,14 +396,12 @@ public final class ModifierIndex {
             return new MaterialResult(icons, lines, slotIcons);
         }
 
-        // 非增量配方：先看 getInputs / getDisplayInputs
         Object direct = call(display, "getInputs");
         if (direct == null) direct = call(display, "getDisplayInputs");
         if (direct instanceof Collection<?> col && !col.isEmpty()) {
             return materializeInputs(col, slotIcons);
         }
 
-        // 逐槽位 getDisplayItems(slot)
         for (int slot = 0; slot <= 4; slot++) {
             Object v = call(display, "getDisplayItems", int.class, slot);
             if (!(v instanceof List<?> list) || list.isEmpty()) continue;
@@ -728,9 +718,6 @@ public final class ModifierIndex {
         }
     }
 
-    /**
-     * 如果字符串是一个匠魂翻译键，尝试翻译为当前语言文本；否则原样返回。
-     */
     private static String resolveTranslation(String key) {
         if (key == null || key.isEmpty()) return key;
         if (key.startsWith("recipe.tconstruct")
