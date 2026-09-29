@@ -71,6 +71,9 @@
 
   "gui.anvilssearch.modifier.requirements_error": "前置条件未满足",
   "gui.anvilssearch.modifier.requirements_generic": "前置条件未满足",
-  "gui.anvilssearch.modifier.variant": "变体"
+  "gui.anvilssearch.modifier.variant": "变体",
+
+  "gui.anvilssearch.modifier.unlimited_title": "无上限强化",
+  "gui.anvilssearch.modifier.unlimited_hint": "该强化无等级上限，可反复叠加"
 
 }

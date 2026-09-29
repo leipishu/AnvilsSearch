@@ -17,13 +17,16 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 照搬匠魂 JEI 插件的读取方式。
  *
- * 对外提供两份数据：
- *   - get()        —— 平铺：每个等级一条 Entry；
- *   - getGrouped() —— 合并：同一 modifier 的多个等级合成一条，叠加配方不合并。
+ * 配方种类：
+ *   - SIMPLE      —— 单级固定配方
+ *   - INCREMENTAL —— 叠加配方（锋利等），有明确等级上限，用 ⚡ + "每级 N 材料"
+ *   - UNLIMITED   —— 无上限配方（延展、储液、泼洒等），用 ⚡ + "无上限"
+ *   - MULTILEVEL  —— 多级配方（阅历等），展开为 I~N
+ *   - SWAPPABLE   —— 变体配方
  */
 public final class ModifierIndex {
 
-    public enum RecipeKind { SIMPLE, INCREMENTAL, MULTILEVEL, SWAPPABLE }
+    public enum RecipeKind { SIMPLE, INCREMENTAL, MULTILEVEL, SWAPPABLE, UNLIMITED }
 
     // ============================================================
     // ===== 公开数据结构 =========================================
@@ -50,7 +53,6 @@ public final class ModifierIndex {
         public final List<ItemStack>[] slotMaterials;
         public final Object toolFilter;
         public final Object toolRequirement;
-        /** 该等级对应的原始 display 配方对象，用于 UI 做前置条件检查。 */
         public final Object recipe;
         public final RecipeKind kind;
         public final int amountPerInput;
@@ -204,15 +206,8 @@ public final class ModifierIndex {
         if (raw.isEmpty()) return raw;
 
         Map<String, List<Entry>> byKey = new LinkedHashMap<>();
-        List<Entry> passthrough = new ArrayList<>();
 
         for (Entry e : raw) {
-            boolean incremental = !e.levels.isEmpty()
-                    && e.levels.get(0).kind == RecipeKind.INCREMENTAL;
-            if (incremental) {
-                passthrough.add(e);
-                continue;
-            }
             String key = e.registryPath != null ? e.registryPath : e.id;
             byKey.computeIfAbsent(key, k -> new ArrayList<>()).add(e);
         }
@@ -231,7 +226,6 @@ public final class ModifierIndex {
             for (Entry e : group) merged.addAll(e.levels);
             merged.sort(Comparator.comparingInt(l -> l.level));
 
-            // 严格去重：level + 名字 + 槽位 + 材料完全相同才视为重复
             List<LevelInfo> unique = new ArrayList<>();
             Set<String> seen = new LinkedHashSet<>();
             for (LevelInfo lv : merged) {
@@ -248,16 +242,11 @@ public final class ModifierIndex {
             result.add(new Entry(first.modifier, first.recipe, path,
                     first.registryPath, first.color, unique.size(), unique));
         }
-        result.addAll(passthrough);
 
         result.sort(Comparator.comparing(Entry::getDisplayName, String.CASE_INSENSITIVE_ORDER));
         return result;
     }
 
-    /**
-     * 严格签名：level + 显示名 + 槽位 + 材料。
-     * 同名同等级但材料不同的配方（如 22 种"装饰"）不会被误合并。
-     */
     private static String levelSignature(LevelInfo lv) {
         StringBuilder sb = new StringBuilder();
         sb.append(lv.level).append('|');
@@ -378,13 +367,26 @@ public final class ModifierIndex {
             Object toolRequirement = readFieldAny(display,
                     "toolRequirement", "tools", "toolFilter", "toolIngredient");
 
-            boolean incremental = boolOf(display, "isIncremental");
-            int maxLevel = intOf(display, "getMaxLevel");
-            if (maxLevel <= 0) maxLevel = baseLevel;
+            String simpleName = display.getClass().getSimpleName();
+            boolean incremental = boolOf(display, "isIncremental")
+                    || simpleName.contains("Incremental");
 
-            RecipeKind kind = incremental
-                    ? RecipeKind.INCREMENTAL
-                    : detectKindByName(display);
+            int rawMaxLevel = intOf(display, "getMaxLevel");
+            // maxLevel <= 0 表示无上限（延展、储液、泼洒等）
+            boolean unlimited = (rawMaxLevel <= 0);
+
+            int maxLevel = rawMaxLevel;
+            if (maxLevel <= 0) maxLevel = baseLevel;
+            if (maxLevel < baseLevel) maxLevel = baseLevel;
+
+            RecipeKind kind;
+            if (unlimited) {
+                kind = RecipeKind.UNLIMITED;
+            } else if (incremental) {
+                kind = RecipeKind.INCREMENTAL;
+            } else {
+                kind = detectKindByName(display);
+            }
 
             int amountPerInput = 0, neededPerLevel = 0;
             if (incremental) {
@@ -421,7 +423,22 @@ public final class ModifierIndex {
             int colon = modifierId.indexOf(':');
             if (colon >= 0) path = modifierId.substring(colon + 1);
 
-            if (!incremental && maxLevel > baseLevel) {
+            // ★ 无上限 或 叠加配方：只生成单条（用 ⚡ 表示）
+            if (unlimited || incremental) {
+                Component dn = extractDisplayName(modifier, baseLevel);
+                LevelInfo lv = new LevelInfo(baseLevel, dn, slots, mr.icons, mr.lines,
+                        mr.slotIcons, toolFilter, toolRequirement, display,
+                        kind, amountPerInput, neededPerLevel,
+                        requirementsError, variant);
+
+                String id = modifierId + "#" + baseLevel;
+                entries.add(new Entry(modifier, display, id, path, color, maxLevel,
+                        Collections.singletonList(lv)));
+                return entries;
+            }
+
+            // 固定等级展开
+            if (maxLevel > baseLevel) {
                 for (int level = baseLevel; level <= maxLevel; level++) {
                     Component dn = extractDisplayName(modifier, level);
                     LevelInfo lv = new LevelInfo(level, dn, slots, mr.icons, mr.lines,

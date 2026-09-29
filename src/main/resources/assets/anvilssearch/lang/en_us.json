@@ -70,5 +70,8 @@
 
   "gui.anvilssearch.modifier.requirements_error": "Requirements not met",
   "gui.anvilssearch.modifier.requirements_generic": "Requirements not met",
-  "gui.anvilssearch.modifier.variant": "Variant"
+  "gui.anvilssearch.modifier.variant": "Variant",
+
+  "gui.anvilssearch.modifier.unlimited_title": "Unlimited Modifier",
+  "gui.anvilssearch.modifier.unlimited_hint": "No level cap, can be stacked indefinitely"
 }

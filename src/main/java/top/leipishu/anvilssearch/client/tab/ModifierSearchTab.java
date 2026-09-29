@@ -187,18 +187,15 @@ public class ModifierSearchTab implements AnvilTab {
         boolean hasItem = center != null && !center.isEmpty();
 
         List<ModifierIndex.Entry> out = new ArrayList<>();
-        int filteredLevels = 0;
         for (ModifierIndex.Entry e : allEntries) {
             if (!matches(e, k)) continue;
             if (favoritesOnly && !FavoritesStore.isFavorite(e.id)) continue;
             if (!slotFilter.isEmpty() && !matchesSlotFilter(e)) continue;
 
-            // ★ 用当前工具过滤 levels：只保留 toolRequirement 匹配当前工具的 LevelInfo
             ModifierIndex.Entry displayEntry = e;
             if (hasItem && !e.levels.isEmpty()) {
                 ModifierIndex.Entry sub = filterLevelsByTool(e, center);
-                if (sub == null) continue;      // 整条 Entry 都不适用于当前工具
-                if (sub != e) filteredLevels++;
+                if (sub == null) continue;
                 displayEntry = sub;
             }
             out.add(displayEntry);
@@ -215,7 +212,6 @@ public class ModifierSearchTab implements AnvilTab {
         scrollOffset = 0;
         rightScrollOffset = 0;
 
-        // 若 selected 还在 filtered 里，用新对象替换；否则清空
         if (selected != null) {
             boolean found = false;
             for (ModifierIndex.Entry e : filtered) {
@@ -235,20 +231,8 @@ public class ModifierSearchTab implements AnvilTab {
         lastReqEntry = null;
         lastReqIndex = -1;
         lastReqItem = ItemStack.EMPTY;
-
-        if (hasItem) {
-            System.out.println("[Anvil's Search] applyFilter: entries="
-                    + filtered.size() + " filteredLevels=" + filteredLevels);
-        }
     }
 
-    /**
-     * 用当前工具过滤 Entry 的 levels。
-     *
-     * @return null 表示整条 Entry 都不适用于当前工具；
-     *         原对象表示所有 LevelInfo 都适用（无拷贝）；
-     *         新对象表示部分 LevelInfo 被过滤掉。
-     */
     private static ModifierIndex.Entry filterLevelsByTool(ModifierIndex.Entry e, ItemStack tool) {
         List<ModifierIndex.LevelInfo> kept = new ArrayList<>();
         for (ModifierIndex.LevelInfo li : e.levels) {
@@ -264,10 +248,6 @@ public class ModifierSearchTab implements AnvilTab {
                 e.color, kept.size(), kept);
     }
 
-    /**
-     * toolRequirement 是否适用于给定工具。
-     * toolRequirement == null 视为无限制（返回 true）。
-     */
     private static boolean matchesTool(Object toolRequirement, ItemStack tool) {
         if (toolRequirement == null) return true;
         if (tool == null || tool.isEmpty()) return true;
@@ -321,13 +301,17 @@ public class ModifierSearchTab implements AnvilTab {
         return false;
     }
 
-    private static boolean isIncrementalEntry(ModifierIndex.Entry e) {
-        return !e.levels.isEmpty()
-                && e.levels.get(0).kind == ModifierIndex.RecipeKind.INCREMENTAL;
+    /** 用 ⚡ 图标表示的条目：叠加配方 或 无上限配方。 */
+    private static boolean isLightningEntry(ModifierIndex.Entry e) {
+        if (e.levels.isEmpty()) return false;
+        ModifierIndex.RecipeKind k = e.levels.get(0).kind;
+        return k == ModifierIndex.RecipeKind.INCREMENTAL
+                || k == ModifierIndex.RecipeKind.UNLIMITED;
     }
 
+    /** 有多条 level 的条目（展开箭头）。 */
     private static boolean isMultiLevelEntry(ModifierIndex.Entry e) {
-        return !isIncrementalEntry(e) && e.levels.size() > 1;
+        return e.levels.size() > 1;
     }
 
     private ModifierIndex.LevelInfo getSelectedLevelInfo() {
@@ -448,12 +432,12 @@ public class ModifierSearchTab implements AnvilTab {
 
             int rowY = listTop - scrollOffset;
             for (ModifierIndex.Entry e : filtered) {
-                boolean inc = isIncrementalEntry(e);
+                boolean lightning = isLightningEntry(e);
                 boolean multi = isMultiLevelEntry(e);
                 boolean expanded = multi && expandedInList.contains(e.id);
 
                 drawEntryRow(ps, font, innerX, rowY, clipW, e,
-                        multi, expanded, inc,
+                        multi, expanded, lightning,
                         selected == e && selectedIndex < 0,
                         mouseX, mouseY);
                 rowY += ROW_H;
@@ -584,7 +568,7 @@ public class ModifierSearchTab implements AnvilTab {
 
     private void drawEntryRow(PoseStack ps, Font font,
                               int x, int y, int clipW, ModifierIndex.Entry e,
-                              boolean multi, boolean expanded, boolean incremental,
+                              boolean multi, boolean expanded, boolean lightning,
                               boolean sel, int mouseX, int mouseY) {
         boolean hover = mouseX >= x && mouseX <= x + clipW
                 && mouseY >= y && mouseY <= y + ROW_H;
@@ -611,18 +595,27 @@ public class ModifierSearchTab implements AnvilTab {
         String right = "";
         int rightW = 0;
         int rightX = -1;
-        boolean isIconLightning = false;
+        boolean isIcon = false;
+        boolean isIconUnlimited = false;
 
-        if (incremental && !e.levels.isEmpty()) {
-            String icon = "\u26A1";
-            right = icon;
-            rightW = font.width(icon) + 3;
-            rightX = x + clipW - rightW - 2;
-            isIconLightning = true;
-        } else if (multi) {
+        // 多级优先显示展开箭头；单级的叠加/无上限显示图标
+        if (multi) {
             right = expanded ? "\u25BC" : "\u25B6";
             rightW = font.width(right) + 3;
             rightX = x + clipW - rightW - 2;
+        } else if (lightning && !e.levels.isEmpty()) {
+            ModifierIndex.RecipeKind k = e.levels.get(0).kind;
+            if (k == ModifierIndex.RecipeKind.UNLIMITED) {
+                // ★ 无上限：用 ∞ 图标
+                right = "\u221E";
+                isIconUnlimited = true;
+            } else {
+                // 叠加配方：用 ⚡ 图标
+                right = "\u26A1";
+            }
+            rightW = font.width(right) + 3;
+            rightX = x + clipW - rightW - 2;
+            isIcon = true;
         }
 
         int textX = starX + STAR_W + 4;
@@ -638,21 +631,31 @@ public class ModifierSearchTab implements AnvilTab {
                         : (hover ? AnvilTheme.TEXT_PRIMARY : e.color));
 
         if (rightW > 0) {
-            font.draw(ps, right, rightX, textY,
-                    isIconLightning ? AnvilTheme.ACCENT_SOFT : AnvilTheme.TEXT_MUTED);
+            int iconColor = isIcon
+                    ? AnvilTheme.ACCENT_SOFT
+                    : AnvilTheme.TEXT_MUTED;
+            font.draw(ps, right, rightX, textY, iconColor);
         }
 
-        if (isIconLightning && rightX >= 0) {
-            int iconW = font.width("\u26A1");
+        // 图标 tooltip
+        if (isIcon && rightX >= 0) {
+            int iconW = font.width(right);
             if (mouseX >= rightX - 2 && mouseX <= rightX + iconW + 2
                     && mouseY >= y && mouseY <= y + ROW_H) {
                 ModifierIndex.LevelInfo li = e.levels.get(0);
                 List<Component> tip = new ArrayList<>();
-                tip.add(new TextComponent("\u00A7e" + new TranslatableComponent(
-                        "gui.anvilssearch.modifier.incremental_title").getString()));
-                tip.add(new TextComponent("\u00A77" + new TranslatableComponent(
-                        "gui.anvilssearch.modifier.incremental_hint",
-                        li.amountPerInput, li.neededPerLevel).getString()));
+                if (isIconUnlimited) {
+                    tip.add(new TextComponent("\u00A7e" + new TranslatableComponent(
+                            "gui.anvilssearch.modifier.unlimited_title").getString()));
+                    tip.add(new TextComponent("\u00A77" + new TranslatableComponent(
+                            "gui.anvilssearch.modifier.unlimited_hint").getString()));
+                } else {
+                    tip.add(new TextComponent("\u00A7e" + new TranslatableComponent(
+                            "gui.anvilssearch.modifier.incremental_title").getString()));
+                    tip.add(new TextComponent("\u00A77" + new TranslatableComponent(
+                            "gui.anvilssearch.modifier.incremental_hint",
+                            li.amountPerInput, li.neededPerLevel).getString()));
+                }
                 panel.setPendingTooltip(tip);
             }
         }
@@ -833,6 +836,10 @@ public class ModifierSearchTab implements AnvilTab {
                     + new TranslatableComponent(
                     "gui.anvilssearch.modifier.incremental_summary",
                     selLi.amountPerInput, selLi.neededPerLevel).getString()));
+        } else if (selLi.kind == ModifierIndex.RecipeKind.UNLIMITED) {
+            c2.add(new TextComponent("\u00A7e"
+                    + new TranslatableComponent(
+                    "gui.anvilssearch.modifier.unlimited_hint").getString()));
         }
 
         if (selLi.variant != null) {
@@ -1236,7 +1243,7 @@ public class ModifierSearchTab implements AnvilTab {
 
             int rowY = leftListTop - scrollOffset;
             for (ModifierIndex.Entry e : filtered) {
-                boolean inc = isIncrementalEntry(e);
+                boolean lightning = isLightningEntry(e);
                 boolean multi = isMultiLevelEntry(e);
                 boolean expanded = multi && expandedInList.contains(e.id);
 
@@ -1247,7 +1254,8 @@ public class ModifierSearchTab implements AnvilTab {
                         if (favoritesOnly) applyFilter(panel.getSearchKeyword());
                         return true;
                     }
-                    if (inc) {
+                    if (!multi) {
+                        // 单级条目（包括 ⚡ 表示的叠加/无上限）直接选中
                         selected = e;
                         selectedIndex = -1;
                         rightScrollOffset = 0;
@@ -1256,10 +1264,9 @@ public class ModifierSearchTab implements AnvilTab {
                         lastReqItem = ItemStack.EMPTY;
                         return true;
                     }
-                    if (multi) {
-                        if (expanded) expandedInList.remove(e.id);
-                        else expandedInList.add(e.id);
-                    }
+                    // 多级：切换展开 + 选中
+                    if (expanded) expandedInList.remove(e.id);
+                    else expandedInList.add(e.id);
                     selected = e;
                     selectedIndex = -1;
                     rightScrollOffset = 0;
