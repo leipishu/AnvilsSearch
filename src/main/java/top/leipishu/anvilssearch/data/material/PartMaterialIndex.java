@@ -1,4 +1,4 @@
-package top.leipishu.anvilssearch.data;
+package top.leipishu.anvilssearch.data.material;
 
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
@@ -11,6 +11,7 @@ import slimeknights.tconstruct.library.materials.definition.MaterialId;
 import slimeknights.tconstruct.library.materials.stats.MaterialStatsId;
 import slimeknights.tconstruct.library.tools.definition.PartRequirement;
 import slimeknights.tconstruct.library.tools.part.IMaterialItem;
+import top.leipishu.anvilssearch.data.tool.ToolDefinitionIndex;
 import top.leipishu.tinkerssearch.recipe.CastingRecipeHelper;
 
 import java.util.*;

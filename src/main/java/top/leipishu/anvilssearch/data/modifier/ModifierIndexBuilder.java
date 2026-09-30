@@ -1,4 +1,4 @@
-package top.leipishu.anvilssearch.data;
+package top.leipishu.anvilssearch.data.modifier;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
@@ -9,267 +9,35 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeManager;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static top.leipishu.anvilssearch.data.modifier.ModifierReflect.*;
+
 /**
- * 照搬匠魂 JEI 插件的读取方式。
- *
- * 配方种类：
- *   - SIMPLE      —— 单级固定配方
- *   - INCREMENTAL —— 叠加配方（锋利等），有明确等级上限，用 ⚡ + "每级 N 材料"
- *   - UNLIMITED   —— 无上限配方（延展、储液、泼洒等），用 ⚡ + "无上限"
- *   - MULTILEVEL  —— 多级配方（阅历等），展开为 I~N
- *   - SWAPPABLE   —— 变体配方
+ * 从 {@link RecipeManager} 读取匠魂强化配方，生成 {@link ModifierIndex.Entry}。
+ * 所有配方扫描、材料读取、槽位读取的逻辑都在这里。
  */
-public final class ModifierIndex {
+final class ModifierIndexBuilder {
 
-    public enum RecipeKind { SIMPLE, INCREMENTAL, MULTILEVEL, SWAPPABLE, UNLIMITED }
+    private ModifierIndexBuilder() {}
 
-    // ============================================================
-    // ===== 公开数据结构 =========================================
-    // ============================================================
-
-    public static final class SlotRequirement {
-        public final String typeId;
-        public final Component displayName;
-        public final int count;
-
-        public SlotRequirement(String typeId, Component displayName, int count) {
-            this.typeId = (typeId != null && !typeId.isEmpty()) ? typeId : "unknown";
-            this.displayName = displayName != null ? displayName : new TextComponent("?");
-            this.count = Math.max(0, count);
-        }
-    }
-
-    public static final class LevelInfo {
-        public final int level;
-        public final Component displayName;
-        public final List<SlotRequirement> slots;
-        public final List<ItemStack> materials;
-        public final List<Component> materialLines;
-        public final List<ItemStack>[] slotMaterials;
-        public final Object toolFilter;
-        public final Object toolRequirement;
-        public final Object recipe;
-        public final RecipeKind kind;
-        public final int amountPerInput;
-        public final int neededPerLevel;
-        public final String requirementsError;
-        public final Component variant;
-
-        @SuppressWarnings("unchecked")
-        public LevelInfo(int level, Component displayName,
-                         List<SlotRequirement> slots,
-                         List<ItemStack> materials, List<Component> materialLines,
-                         List<ItemStack>[] slotMaterials,
-                         Object toolFilter, Object toolRequirement, Object recipe,
-                         RecipeKind kind,
-                         int amountPerInput, int neededPerLevel,
-                         String requirementsError, Component variant) {
-            this.level = level;
-            this.displayName = displayName != null ? displayName : new TextComponent("?");
-            this.slots = slots != null ? slots : Collections.emptyList();
-            this.materials = materials != null ? materials : Collections.emptyList();
-            this.materialLines = materialLines != null ? materialLines : Collections.emptyList();
-            this.slotMaterials = slotMaterials;
-            this.toolFilter = toolFilter;
-            this.toolRequirement = toolRequirement;
-            this.recipe = recipe;
-            this.kind = kind != null ? kind : RecipeKind.SIMPLE;
-            this.amountPerInput = amountPerInput;
-            this.neededPerLevel = neededPerLevel;
-            this.requirementsError = requirementsError;
-            this.variant = variant;
-        }
-    }
-
-    private static final class MaterialResult {
-        final List<ItemStack> icons;
-        final List<Component> lines;
-        final List<ItemStack>[] slotIcons;
-        @SuppressWarnings("unchecked")
-        MaterialResult(List<ItemStack> icons, List<Component> lines,
-                       List<ItemStack>[] slotIcons) {
-            this.icons = icons != null ? icons : Collections.emptyList();
-            this.lines = lines != null ? lines : Collections.emptyList();
-            this.slotIcons = slotIcons;
-        }
-    }
-
-    public static final class Entry {
-        public final Object modifier;
-        public final Object recipe;
-        public final String id;
-        public final String registryPath;
-        public final int color;
-        public final int maxLevel;
-        public final List<LevelInfo> levels;
-
-        public Entry(Object modifier, Object recipe, String id, String registryPath,
-                     int color, int maxLevel, List<LevelInfo> levels) {
-            this.modifier = modifier;
-            this.recipe = recipe;
-            this.id = id;
-            this.registryPath = registryPath;
-            this.color = color;
-            this.maxLevel = maxLevel;
-            this.levels = levels != null ? levels : new ArrayList<>();
-        }
-
-        public String getDisplayName() {
-            try {
-                Component c = getDisplayNameComponent(1);
-                String s = c.getString();
-                if (s != null && !s.isEmpty()) return s;
-            } catch (Throwable ignored) {}
-            return prettify(registryPath);
-        }
-
-        public Component getDisplayNameComponent(int level) {
-            Object v = call(modifier, "getDisplayName", int.class, level);
-            if (v instanceof Component c) {
-                String s = c.getString();
-                if (s != null && !s.isEmpty()) return c;
-            }
-            try {
-                Object levelDisplay = field(modifier,
-                        "levelDisplay", "level_display", "display", "LEVEL_DISPLAY");
-                if (levelDisplay != null) {
-                    for (Method m : levelDisplay.getClass().getMethods()) {
-                        if (!"nameForLevel".equals(m.getName())) continue;
-                        Class<?>[] pt = m.getParameterTypes();
-                        if (pt.length != 2 || pt[1] != int.class) continue;
-                        m.setAccessible(true);
-                        Object result = m.invoke(levelDisplay, modifier, level);
-                        if (result instanceof Component c2) {
-                            String s = c2.getString();
-                            if (s != null && !s.isEmpty()) return c2;
-                        }
-                    }
-                }
-            } catch (Throwable ignored) {}
-            return new TextComponent(prettify(registryPath) + " " + level);
-        }
-
-        public List<Component> getDescriptionList(int level) {
-            for (String mn : new String[]{"getDescriptionList", "getDescription"}) {
-                Object v = call(modifier, mn, int.class, level);
-                if (v == null) v = call(modifier, mn);
-                if (v instanceof List<?> list) {
-                    List<Component> out = new ArrayList<>();
-                    for (Object o : list) if (o instanceof Component c) out.add(c);
-                    if (!out.isEmpty()) return out;
-                }
-            }
-            return Collections.emptyList();
-        }
-    }
-
-    private static volatile List<Entry> cache;
-    private static volatile List<Entry> cacheGrouped;
-    private static final Object LOCK = new Object();
     private static final Set<Class<?>> DIAGNOSED =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
 
-    private ModifierIndex() {}
-
-    public static void invalidate() {
-        synchronized (LOCK) {
-            cache = null;
-            cacheGrouped = null;
-        }
-    }
-
-    public static List<Entry> get() {
-        List<Entry> local = cache;
-        if (local != null) return local;
-        synchronized (LOCK) {
-            if (cache == null) cache = build();
-            return cache;
-        }
-    }
-
-    public static List<Entry> getGrouped() {
-        List<Entry> local = cacheGrouped;
-        if (local != null) return local;
-        synchronized (LOCK) {
-            if (cacheGrouped != null) return cacheGrouped;
-            cacheGrouped = group(get());
-            return cacheGrouped;
-        }
-    }
-
-    private static List<Entry> group(List<Entry> raw) {
-        if (raw.isEmpty()) return raw;
-
-        Map<String, List<Entry>> byKey = new LinkedHashMap<>();
-
-        for (Entry e : raw) {
-            String key = e.registryPath != null ? e.registryPath : e.id;
-            byKey.computeIfAbsent(key, k -> new ArrayList<>()).add(e);
-        }
-
-        List<Entry> result = new ArrayList<>();
-        for (Map.Entry<String, List<Entry>> ge : byKey.entrySet()) {
-            String path = ge.getKey();
-            List<Entry> group = ge.getValue();
-            if (group.size() == 1) {
-                result.add(group.get(0));
-                continue;
-            }
-            Entry first = group.get(0);
-
-            List<LevelInfo> merged = new ArrayList<>();
-            for (Entry e : group) merged.addAll(e.levels);
-            merged.sort(Comparator.comparingInt(l -> l.level));
-
-            List<LevelInfo> unique = new ArrayList<>();
-            Set<String> seen = new LinkedHashSet<>();
-            for (LevelInfo lv : merged) {
-                String sig = levelSignature(lv);
-                if (seen.add(sig)) unique.add(lv);
-            }
-            if (unique.isEmpty()) unique.addAll(merged);
-
-            if (unique.size() < merged.size()) {
-                System.out.println("[Anvil's Search] group " + path + ": "
-                        + merged.size() + " -> " + unique.size() + " (deduped)");
-            }
-
-            result.add(new Entry(first.modifier, first.recipe, path,
-                    first.registryPath, first.color, unique.size(), unique));
-        }
-
-        result.sort(Comparator.comparing(Entry::getDisplayName, String.CASE_INSENSITIVE_ORDER));
-        return result;
-    }
-
-    private static String levelSignature(LevelInfo lv) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(lv.level).append('|');
-        try {
-            sb.append(lv.displayName.getString());
-        } catch (Throwable ignored) {}
-        sb.append('|');
-        for (SlotRequirement sr : lv.slots) {
-            sb.append(sr.typeId).append(',').append(sr.count).append(';');
-        }
-        sb.append('|');
-        for (ItemStack s : lv.materials) {
-            if (s == null) continue;
-            sb.append(stackKey(s)).append('*').append(s.getCount()).append(';');
-        }
-        return sb.toString();
-    }
-
     // ============================================================
-    // ===== 构建 =================================================
+    // ===== 主流程 ===============================================
     // ============================================================
 
-    private static List<Entry> build() {
+    static List<ModifierIndex.Entry> build() {
         long t0 = System.currentTimeMillis();
 
         Minecraft mc = Minecraft.getInstance();
@@ -321,10 +89,10 @@ public final class ModifierIndex {
 
         if (displayRecipes.isEmpty()) return Collections.emptyList();
 
-        List<Entry> result = new ArrayList<>();
+        List<ModifierIndex.Entry> result = new ArrayList<>();
         int skippedEmpty = 0;
         for (Object display : displayRecipes) {
-            List<Entry> entries = buildEntriesFromDisplay(display);
+            List<ModifierIndex.Entry> entries = buildEntriesFromDisplay(display);
             if (entries.isEmpty()) {
                 skippedEmpty++;
             } else {
@@ -332,7 +100,8 @@ public final class ModifierIndex {
             }
         }
 
-        result.sort(Comparator.comparing(Entry::getDisplayName, String.CASE_INSENSITIVE_ORDER));
+        result.sort(Comparator.comparing(ModifierIndex.Entry::getDisplayName,
+                String.CASE_INSENSITIVE_ORDER));
 
         System.out.println("[Anvil's Search] ModifierIndex built: " + result.size()
                 + " entries from " + scanned + " candidates / "
@@ -342,8 +111,12 @@ public final class ModifierIndex {
         return result;
     }
 
-    private static List<Entry> buildEntriesFromDisplay(Object display) {
-        List<Entry> entries = new ArrayList<>();
+    // ============================================================
+    // ===== 单条 display → Entry 列表 ============================
+    // ============================================================
+
+    private static List<ModifierIndex.Entry> buildEntriesFromDisplay(Object display) {
+        List<ModifierIndex.Entry> entries = new ArrayList<>();
         try {
             Object entry = call(display, "getDisplayResult");
             if (entry == null) return entries;
@@ -362,7 +135,7 @@ public final class ModifierIndex {
             MaterialResult mr = readMaterialsFromDisplay(display);
             if (mr.icons.isEmpty()) return entries;
 
-            List<SlotRequirement> slots = readSlotsFromDisplay(display);
+            List<ModifierIndex.SlotRequirement> slots = readSlotsFromDisplay(display);
 
             Object toolRequirement = readFieldAny(display,
                     "toolRequirement", "tools", "toolFilter", "toolIngredient");
@@ -379,11 +152,11 @@ public final class ModifierIndex {
             if (maxLevel <= 0) maxLevel = baseLevel;
             if (maxLevel < baseLevel) maxLevel = baseLevel;
 
-            RecipeKind kind;
+            ModifierIndex.RecipeKind kind;
             if (unlimited) {
-                kind = RecipeKind.UNLIMITED;
+                kind = ModifierIndex.RecipeKind.UNLIMITED;
             } else if (incremental) {
-                kind = RecipeKind.INCREMENTAL;
+                kind = ModifierIndex.RecipeKind.INCREMENTAL;
             } else {
                 kind = detectKindByName(display);
             }
@@ -423,17 +196,18 @@ public final class ModifierIndex {
             int colon = modifierId.indexOf(':');
             if (colon >= 0) path = modifierId.substring(colon + 1);
 
-            // ★ 无上限 或 叠加配方：只生成单条（用 ⚡ 表示）
+            // 无上限 或 叠加配方：只生成单条（用 ⚡ / ∞ 表示）
             if (unlimited || incremental) {
                 Component dn = extractDisplayName(modifier, baseLevel);
-                LevelInfo lv = new LevelInfo(baseLevel, dn, slots, mr.icons, mr.lines,
-                        mr.slotIcons, toolFilter, toolRequirement, display,
+                ModifierIndex.LevelInfo lv = new ModifierIndex.LevelInfo(
+                        baseLevel, dn, slots, mr.icons, mr.lines, mr.slotIcons,
+                        toolFilter, toolRequirement, display,
                         kind, amountPerInput, neededPerLevel,
                         requirementsError, variant);
 
                 String id = modifierId + "#" + baseLevel;
-                entries.add(new Entry(modifier, display, id, path, color, maxLevel,
-                        Collections.singletonList(lv)));
+                entries.add(new ModifierIndex.Entry(modifier, display, id, path, color,
+                        maxLevel, Collections.singletonList(lv)));
                 return entries;
             }
 
@@ -441,25 +215,27 @@ public final class ModifierIndex {
             if (maxLevel > baseLevel) {
                 for (int level = baseLevel; level <= maxLevel; level++) {
                     Component dn = extractDisplayName(modifier, level);
-                    LevelInfo lv = new LevelInfo(level, dn, slots, mr.icons, mr.lines,
-                            mr.slotIcons, toolFilter, toolRequirement, display,
+                    ModifierIndex.LevelInfo lv = new ModifierIndex.LevelInfo(
+                            level, dn, slots, mr.icons, mr.lines, mr.slotIcons,
+                            toolFilter, toolRequirement, display,
                             kind, amountPerInput, neededPerLevel,
                             requirementsError, variant);
 
                     String id = modifierId + "#" + level;
-                    entries.add(new Entry(modifier, display, id, path, color, maxLevel,
-                            Collections.singletonList(lv)));
+                    entries.add(new ModifierIndex.Entry(modifier, display, id, path, color,
+                            maxLevel, Collections.singletonList(lv)));
                 }
             } else {
                 Component dn = extractDisplayName(modifier, baseLevel);
-                LevelInfo lv = new LevelInfo(baseLevel, dn, slots, mr.icons, mr.lines,
-                        mr.slotIcons, toolFilter, toolRequirement, display,
+                ModifierIndex.LevelInfo lv = new ModifierIndex.LevelInfo(
+                        baseLevel, dn, slots, mr.icons, mr.lines, mr.slotIcons,
+                        toolFilter, toolRequirement, display,
                         kind, amountPerInput, neededPerLevel,
                         requirementsError, variant);
 
                 String id = modifierId + "#" + baseLevel;
-                entries.add(new Entry(modifier, display, id, path, color, maxLevel,
-                        Collections.singletonList(lv)));
+                entries.add(new ModifierIndex.Entry(modifier, display, id, path, color,
+                        maxLevel, Collections.singletonList(lv)));
             }
         } catch (Throwable t) {
             System.err.println("[Anvil's Search] failed to build entries: " + t);
@@ -470,6 +246,20 @@ public final class ModifierIndex {
     // ============================================================
     // ===== 材料读取 =============================================
     // ============================================================
+
+    private static final class MaterialResult {
+        final List<ItemStack> icons;
+        final List<Component> lines;
+        final List<ItemStack>[] slotIcons;
+
+        @SuppressWarnings("unchecked")
+        MaterialResult(List<ItemStack> icons, List<Component> lines,
+                       List<ItemStack>[] slotIcons) {
+            this.icons = icons != null ? icons : Collections.emptyList();
+            this.lines = lines != null ? lines : Collections.emptyList();
+            this.slotIcons = slotIcons;
+        }
+    }
 
     @SuppressWarnings("unchecked")
     private static MaterialResult readMaterialsFromDisplay(Object display) {
@@ -563,10 +353,10 @@ public final class ModifierIndex {
     // ===== 槽位读取 =============================================
     // ============================================================
 
-    private static List<SlotRequirement> readSlotsFromDisplay(Object display) {
+    private static List<ModifierIndex.SlotRequirement> readSlotsFromDisplay(Object display) {
         Object slots = call(display, "getSlots");
         if (slots == null) {
-            return Collections.singletonList(new SlotRequirement(
+            return Collections.singletonList(new ModifierIndex.SlotRequirement(
                     "none", new TranslatableComponent("gui.anvilssearch.slot.none"), 0));
         }
 
@@ -574,14 +364,14 @@ public final class ModifierIndex {
         int count = intOf(slots, "getCount");
 
         if (type == null) {
-            return Collections.singletonList(new SlotRequirement(
+            return Collections.singletonList(new ModifierIndex.SlotRequirement(
                     "none", new TranslatableComponent("gui.anvilssearch.slot.none"), 0));
         }
 
         String typeName = slotTypeName(type);
         String norm = normalizeSlotType(typeName);
-        return Collections.singletonList(
-                new SlotRequirement(norm, slotTypeDisplayName(norm), Math.max(0, count)));
+        return Collections.singletonList(new ModifierIndex.SlotRequirement(
+                norm, slotTypeDisplayName(norm), Math.max(0, count)));
     }
 
     // ============================================================
@@ -625,74 +415,8 @@ public final class ModifierIndex {
     }
 
     // ============================================================
-    // ===== 反射工具 =============================================
+    // ===== 名称 / 颜色 / 工具需求 ===============================
     // ============================================================
-
-    private static Object call(Object target, String name) {
-        return call(target, name, new Class<?>[0]);
-    }
-
-    private static Object call(Object target, String name, Class<?> pType, Object arg) {
-        return call(target, name, new Class<?>[]{pType}, arg);
-    }
-
-    private static Object call(Object target, String name, Class<?>[] pTypes, Object... args) {
-        if (target == null) return null;
-        Method m = findMethod(target.getClass(), name, pTypes);
-        if (m == null) return null;
-        try {
-            m.setAccessible(true);
-            return m.invoke(target, args);
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private static int intOf(Object target, String name) {
-        Object v = call(target, name);
-        return v instanceof Number n ? n.intValue() : 0;
-    }
-
-    private static boolean boolOf(Object target, String name) {
-        Object v = call(target, name);
-        return v instanceof Boolean b && b;
-    }
-
-    private static int intField(Object target, String... names) {
-        Object v = field(target, names);
-        return v instanceof Number n ? n.intValue() : 0;
-    }
-
-    private static Method findMethod(Class<?> cls, String name, Class<?>... params) {
-        Class<?> c = cls;
-        while (c != null && c != Object.class) {
-            try { return c.getDeclaredMethod(name, params); }
-            catch (Throwable ignored) {}
-            c = c.getSuperclass();
-        }
-        return null;
-    }
-
-    private static Object field(Object target, String... names) {
-        if (target == null) return null;
-        for (String name : names) {
-            Class<?> c = target.getClass();
-            while (c != null && c != Object.class) {
-                try {
-                    Field f = c.getDeclaredField(name);
-                    f.setAccessible(true);
-                    Object v = f.get(target);
-                    if (v != null) return v;
-                } catch (Throwable ignored) {}
-                c = c.getSuperclass();
-            }
-        }
-        return null;
-    }
-
-    private static Object readFieldAny(Object obj, String... names) {
-        return field(obj, names);
-    }
 
     private static String extractModifierId(Object modifier) {
         Object v = call(modifier, "getId");
@@ -725,21 +449,27 @@ public final class ModifierIndex {
     private static Object readToolRequirement(Object display) {
         Object v = call(display, "getToolRequirement");
         if (v == null) v = call(display, "getToolIngredient");
-        if (v == null) v = field(display, "toolRequirement", "tools", "toolFilter", "toolIngredient");
+        if (v == null) v = field(display,
+                "toolRequirement", "tools", "toolFilter", "toolIngredient");
         return v;
     }
 
-    private static RecipeKind detectKindByName(Object display) {
+    private static ModifierIndex.RecipeKind detectKindByName(Object display) {
         Class<?> c = display.getClass();
         while (c != null && c != Object.class) {
             String n = c.getSimpleName();
-            if (n.contains("Incremental")) return RecipeKind.INCREMENTAL;
-            if (n.contains("Multilevel") || n.contains("MultiLevel")) return RecipeKind.MULTILEVEL;
-            if (n.contains("Swappable")) return RecipeKind.SWAPPABLE;
+            if (n.contains("Incremental")) return ModifierIndex.RecipeKind.INCREMENTAL;
+            if (n.contains("Multilevel") || n.contains("MultiLevel"))
+                return ModifierIndex.RecipeKind.MULTILEVEL;
+            if (n.contains("Swappable")) return ModifierIndex.RecipeKind.SWAPPABLE;
             c = c.getSuperclass();
         }
-        return RecipeKind.SIMPLE;
+        return ModifierIndex.RecipeKind.SIMPLE;
     }
+
+    // ============================================================
+    // ===== 槽位类型 =============================================
+    // ============================================================
 
     private static String slotTypeName(Object slotType) {
         if (slotType == null) return null;
@@ -776,6 +506,10 @@ public final class ModifierIndex {
         }
         return tc;
     }
+
+    // ============================================================
+    // ===== ItemStack 抽取 =======================================
+    // ============================================================
 
     private static ItemStack extractStackFromSized(Object sized) {
         if (sized == null) return ItemStack.EMPTY;
@@ -816,17 +550,9 @@ public final class ModifierIndex {
         return v instanceof Number n ? n.intValue() : 1;
     }
 
-    private static String stackKey(ItemStack stack) {
-        try {
-            String regName = stack.getItem().getRegistryName() != null
-                    ? stack.getItem().getRegistryName().toString()
-                    : stack.getItem().toString();
-            String nbt = stack.getTag() != null ? stack.getTag().toString() : "";
-            return regName + "|" + nbt;
-        } catch (Throwable t) {
-            return stack.toString();
-        }
-    }
+    // ============================================================
+    // ===== 翻译 / 美化 ==========================================
+    // ============================================================
 
     private static String resolveTranslation(String key) {
         if (key == null || key.isEmpty()) return key;

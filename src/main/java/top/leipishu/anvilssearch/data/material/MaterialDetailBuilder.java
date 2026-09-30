@@ -1,4 +1,4 @@
-package top.leipishu.anvilssearch.data;
+package top.leipishu.anvilssearch.data.material;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.TextColor;

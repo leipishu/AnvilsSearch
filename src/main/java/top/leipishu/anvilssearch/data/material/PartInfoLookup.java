@@ -1,4 +1,4 @@
-package top.leipishu.anvilssearch.data;
+package top.leipishu.anvilssearch.data.material;
 
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.material.Fluid;

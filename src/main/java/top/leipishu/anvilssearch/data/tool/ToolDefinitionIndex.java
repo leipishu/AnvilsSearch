@@ -1,4 +1,4 @@
-package top.leipishu.anvilssearch.data;
+package top.leipishu.anvilssearch.data.tool;
 
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;

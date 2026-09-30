@@ -20,7 +20,9 @@ import top.leipishu.anvilssearch.client.AnvilTab;
 import top.leipishu.anvilssearch.client.theme.AnvilTheme;
 import top.leipishu.anvilssearch.data.AnvilSlotAccess;
 import top.leipishu.anvilssearch.data.FavoritesStore;
-import top.leipishu.anvilssearch.data.ModifierIndex;
+import top.leipishu.anvilssearch.data.modifier.ModifierIndex;
+import top.leipishu.anvilssearch.data.modifier.ModifierMaterialText;
+import top.leipishu.anvilssearch.data.modifier.ModifierRequirementChecker;
 import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
@@ -28,14 +30,10 @@ import top.leipishu.tinkerssearch.client.render.ScissorHelper;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch.PinyinResult;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -282,10 +280,11 @@ public class ModifierSearchTab implements AnvilTab {
         Boolean cached = reqMetCache.get(key);
         if (cached != null) return cached;
 
-        Object container = makeContainer(tool);
+        Object container = ModifierRequirementChecker.makeContainer(tool);
         Object recipeForCheck = e.levels.get(0).recipe != null
                 ? e.levels.get(0).recipe : e.recipe;
-        Optional<Component> r = checkRequirements(recipeForCheck, container);
+        Optional<Component> r = ModifierRequirementChecker.checkRequirements(
+                recipeForCheck, container);
 
         boolean met = (r == null) || !r.isPresent();
         reqMetCache.put(key, met);
@@ -377,88 +376,6 @@ public class ModifierSearchTab implements AnvilTab {
             return selected.levels.get(selectedIndex);
         }
         return selected.levels.get(0);
-    }
-
-
-    /**
-     * 生成材料说明。
-     * <p>规则：
-     * <ul>
-     *   <li>每个槽位的候选材料用 "/" 连接，例如 "丝绢/蜘蛛丝"；</li>
-     *   <li>相同候选组的槽位合并数量，例如 5 个 [丝绢] 槽位 → "丝绢 ×5"；</li>
-     *   <li>不同候选组的槽位分别输出。</li>
-     * </ul>
-     * <p>注意：候选组内多个候选 ItemStack 代表"任选其一"，
-     * 数量统计按 <b>槽位数 × 该槽位需求</b> 计算，不累加候选数。
-     */
-    @SuppressWarnings("unchecked")
-    private static List<Component> buildMaterialLines(ModifierIndex.LevelInfo li) {
-        List<Component> out = new ArrayList<>();
-        if (li == null) return out;
-
-        if (li.slotMaterials == null) {
-            return li.materialLines;
-        }
-
-        // key = 候选组签名（按顺序拼接 stackKey）
-        // value = 该组涉及的"槽位需求数量总和"
-        Map<String, Integer> groupTotal = new LinkedHashMap<>();
-        Map<String, List<ItemStack>> groupRep = new LinkedHashMap<>();
-
-        for (List<ItemStack> candidates : li.slotMaterials) {
-            if (candidates == null || candidates.isEmpty()) continue;
-
-            StringBuilder sig = new StringBuilder();
-            for (ItemStack s : candidates) {
-                if (s == null) continue;
-                sig.append(stackKeyOf(s)).append('|');
-            }
-            String key = sig.toString();
-
-            // ★ 该槽位需要的数量：取第一个非空候选的 count
-            //   同一槽位内候选的数量应一致（都表示"该槽位需要 N 个"），
-            //   不累加候选数量，只取一个。
-            int slotNeed = 1;
-            for (ItemStack s : candidates) {
-                if (s != null && !s.isEmpty()) {
-                    slotNeed = Math.max(1, s.getCount());
-                    break;
-                }
-            }
-
-            groupTotal.merge(key, slotNeed, Integer::sum);
-            groupRep.putIfAbsent(key, candidates);
-        }
-
-        if (groupTotal.isEmpty()) return li.materialLines;
-
-        for (Map.Entry<String, Integer> e : groupTotal.entrySet()) {
-            List<ItemStack> reps = groupRep.get(e.getKey());
-            int total = e.getValue();
-
-            StringBuilder names = new StringBuilder();
-            for (int i = 0; i < reps.size(); i++) {
-                if (i > 0) names.append('/');
-                names.append(reps.get(i).getHoverName().getString());
-            }
-
-            out.add(new TextComponent("\u00A77"
-                    + names.toString()
-                    + (total > 1 ? " \u00D7" + total : "")));
-        }
-        return out;
-    }
-
-    private static String stackKeyOf(ItemStack stack) {
-        try {
-            String regName = stack.getItem().getRegistryName() != null
-                    ? stack.getItem().getRegistryName().toString()
-                    : stack.getItem().toString();
-            String nbt = stack.getTag() != null ? stack.getTag().toString() : "";
-            return regName + "|" + nbt;
-        } catch (Throwable t) {
-            return stack.toString();
-        }
     }
 
     private static int readableTint(int color) {
@@ -922,7 +839,7 @@ public class ModifierSearchTab implements AnvilTab {
 
         ModifierIndex.LevelInfo selLi = getSelectedLevelInfo();
 
-        // ★ 图标循环：每秒切换一次候选
+        // 图标循环：每秒切换一次候选
         long tick = 0;
         if (Minecraft.getInstance().level != null) {
             tick = Minecraft.getInstance().level.getGameTime();
@@ -1021,9 +938,10 @@ public class ModifierSearchTab implements AnvilTab {
                 || !ItemStack.isSameItemSameTags(currentAnvilItem, lastReqItem);
 
         if (needRecheck) {
-            Object container = makeContainer(currentAnvilItem);
+            Object container = ModifierRequirementChecker.makeContainer(currentAnvilItem);
             Object recipeForCheck = selLi.recipe != null ? selLi.recipe : selected.recipe;
-            lastReqResult = checkRequirements(recipeForCheck, container);
+            lastReqResult = ModifierRequirementChecker.checkRequirements(
+                    recipeForCheck, container);
             lastReqEntry = selected;
             lastReqIndex = selectedIndex;
             lastReqItem = currentAnvilItem.copy();
@@ -1039,7 +957,8 @@ public class ModifierSearchTab implements AnvilTab {
 
             List<Component> errLines = new ArrayList<>();
             if (msgStr != null && !msgStr.isEmpty() && !msgStr.equals(titleStr)) {
-                List<Component> wrapped = wrapComponent(font, msg, maxTextW);
+                List<Component> wrapped = ModifierMaterialText.wrapComponent(
+                        font, msg, maxTextW);
                 for (Component wc : wrapped) {
                     errLines.add(new TextComponent("\u00A77" + wc.getString()));
                 }
@@ -1054,19 +973,19 @@ public class ModifierSearchTab implements AnvilTab {
         List<Component> c2 = new ArrayList<>();
         c2.add(buildSlotLine(selLi));
 
-        // ★ 黄色提示也走 wrap，避免被卡片区域切割
+        // 黄色提示也走 wrap，避免被卡片区域切割
         if (selLi.kind == ModifierIndex.RecipeKind.INCREMENTAL
                 && selLi.amountPerInput > 0 && selLi.neededPerLevel > 0) {
             Component hint = new TextComponent("\u00A7e"
                     + new TranslatableComponent(
                     "gui.anvilssearch.modifier.incremental_summary",
                     selLi.amountPerInput, selLi.neededPerLevel).getString());
-            c2.addAll(wrapComponent(font, hint, maxTextW));
+            c2.addAll(ModifierMaterialText.wrapComponent(font, hint, maxTextW));
         } else if (selLi.kind == ModifierIndex.RecipeKind.UNLIMITED) {
             Component hint = new TextComponent("\u00A7e"
                     + new TranslatableComponent(
                     "gui.anvilssearch.modifier.unlimited_hint").getString());
-            c2.addAll(wrapComponent(font, hint, maxTextW));
+            c2.addAll(ModifierMaterialText.wrapComponent(font, hint, maxTextW));
         }
 
         if (selLi.variant != null) {
@@ -1074,16 +993,16 @@ public class ModifierSearchTab implements AnvilTab {
                     + new TranslatableComponent(
                     "gui.anvilssearch.modifier.variant").getString()
                     + ": " + selLi.variant.getString());
-            c2.addAll(wrapComponent(font, varLine, maxTextW));
+            c2.addAll(ModifierMaterialText.wrapComponent(font, varLine, maxTextW));
         }
 
-        // ★ 材料文本合并
-        List<Component> materialLines = buildMaterialLines(selLi);
+        // 材料文本合并
+        List<Component> materialLines = ModifierMaterialText.buildMaterialLines(selLi);
 
         if (!materialLines.isEmpty()) {
             c2.add(new TextComponent(""));
             for (Component line : materialLines) {
-                c2.addAll(wrapComponent(font, line, maxTextW));
+                c2.addAll(ModifierMaterialText.wrapComponent(font, line, maxTextW));
             }
         } else {
             c2.add(new TextComponent("\u00A78" + new TranslatableComponent(
@@ -1098,7 +1017,7 @@ public class ModifierSearchTab implements AnvilTab {
                     "gui.anvilssearch.modifier.no_description").getString()));
         } else {
             for (Component d : desc) {
-                c3.addAll(wrapComponent(font, d, maxTextW));
+                c3.addAll(ModifierMaterialText.wrapComponent(font, d, maxTextW));
             }
         }
         cards.add(new Card(AnvilTheme.ACCENT,
@@ -1128,136 +1047,6 @@ public class ModifierSearchTab implements AnvilTab {
                 RenderSystem.enableDepthTest();
             }
         }
-    }
-
-    // ============================================================
-    // ===== 前置条件动态检查 =====================================
-    // ============================================================
-
-    private static Object makeContainer(ItemStack toolStack) {
-        if (toolStack == null || toolStack.isEmpty()) return null;
-        try {
-            Class<?> modifiableClass = Class.forName(
-                    "slimeknights.tconstruct.library.tools.item.IModifiable");
-            if (!modifiableClass.isInstance(toolStack.getItem())) return null;
-
-            Class<?> tsClass = Class.forName(
-                    "slimeknights.tconstruct.library.tools.nbt.ToolStack");
-            Method from = tsClass.getMethod("from", ItemStack.class);
-            from.setAccessible(true);
-            Object tool = from.invoke(null, toolStack);
-            if (tool == null) return null;
-
-            Class<?> containerClass = Class.forName(
-                    "slimeknights.tconstruct.library.recipe.tinkerstation.ITinkerStationContainer");
-            return Proxy.newProxyInstance(
-                    containerClass.getClassLoader(),
-                    new Class<?>[]{containerClass},
-                    (proxy, method, args) -> {
-                        String mn = method.getName();
-                        if ("getTinkerable".equals(mn) && method.getParameterCount() == 0)
-                            return tool;
-                        if ("getTinkerableStack".equals(mn) && method.getParameterCount() == 0)
-                            return toolStack;
-                        Class<?> rt = method.getReturnType();
-                        if (rt == boolean.class) return false;
-                        if (rt == int.class) return 0;
-                        if (rt == long.class) return 0L;
-                        if (rt == float.class) return 0f;
-                        if (rt == double.class) return 0d;
-                        return null;
-                    });
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    private static Optional<Component> checkRequirements(Object recipe, Object container) {
-        if (recipe == null || container == null) return null;
-
-        try {
-            Class<?> containerClass = Class.forName(
-                    "slimeknights.tconstruct.library.recipe.tinkerstation.ITinkerStationContainer");
-            if (!containerClass.isInstance(container)) return null;
-
-            Method validateMethod = null;
-            for (Method m : recipe.getClass().getMethods()) {
-                if (!"getValidatedResult".equals(m.getName())) continue;
-                if (m.getParameterCount() == 2) { validateMethod = m; break; }
-            }
-            if (validateMethod == null) {
-                for (Method m : recipe.getClass().getMethods()) {
-                    if (!"getValidatedResult".equals(m.getName())) continue;
-                    if (m.getParameterCount() == 1) { validateMethod = m; break; }
-                }
-            }
-            if (validateMethod == null) return null;
-
-            Object registryAccess = Minecraft.getInstance().level != null
-                    ? Minecraft.getInstance().level.registryAccess() : null;
-
-            validateMethod.setAccessible(true);
-            Object result = validateMethod.getParameterCount() == 2
-                    ? validateMethod.invoke(recipe, container, registryAccess)
-                    : validateMethod.invoke(recipe, container);
-
-            if (result == null) return Optional.empty();
-
-            Method isSuccessMethod = null;
-            for (Method m : result.getClass().getMethods()) {
-                if ("isSuccess".equals(m.getName()) && m.getParameterCount() == 0) {
-                    isSuccessMethod = m; break;
-                }
-            }
-            if (isSuccessMethod == null) return null;
-
-            boolean success = (boolean) isSuccessMethod.invoke(result);
-            if (success) return Optional.empty();
-
-            Component message = extractFailureMessage(result);
-            if (message != null) return Optional.of(message);
-            return Optional.of(new TextComponent(""));
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    private static Component extractFailureMessage(Object result) {
-        try {
-            Method m = result.getClass().getMethod("getMessage");
-            m.setAccessible(true);
-            Object v = m.invoke(result);
-            if (v instanceof Component c) return c;
-            if (v instanceof String s && !s.isEmpty()) return new TextComponent(s);
-        } catch (Throwable ignored) {}
-
-        try {
-            Method m = result.getClass().getMethod("getMessageComponent");
-            m.setAccessible(true);
-            Object v = m.invoke(result);
-            if (v instanceof Component c) return c;
-            if (v instanceof String s && !s.isEmpty()) return new TextComponent(s);
-        } catch (Throwable ignored) {}
-
-        try {
-            Method m = result.getClass().getMethod("getError");
-            m.setAccessible(true);
-            Object v = m.invoke(result);
-            if (v instanceof Component c) return c;
-            if (v instanceof String s && !s.isEmpty()) return new TextComponent(s);
-        } catch (Throwable ignored) {}
-
-        for (String fname : new String[]{"message", "error", "failureMessage", "reason"}) {
-            try {
-                Field f = result.getClass().getDeclaredField(fname);
-                f.setAccessible(true);
-                Object v = f.get(result);
-                if (v instanceof Component c) return c;
-                if (v instanceof String s && !s.isEmpty()) return new TextComponent(s);
-            } catch (Throwable ignored) {}
-        }
-
-        return null;
     }
 
     private static Component buildSlotLine(ModifierIndex.LevelInfo li) {
@@ -1320,92 +1109,6 @@ public class ModifierSearchTab implements AnvilTab {
             cy += LINE_H;
         }
         return y + cardH + CARD_GAP;
-    }
-
-    /**
-     * 按宽度自动换行。
-     * 保留 § 颜色代码：换行后每行开头重新附加当前生效的颜色。
-     */
-    private static List<Component> wrapComponent(Font font, Component src, int maxW) {
-        List<Component> out = new ArrayList<>();
-        if (src == null) return out;
-        String text = src.getString();
-        if (text == null || text.isEmpty()) {
-            out.add(new TextComponent(""));
-            return out;
-        }
-        if (font.width(text) <= maxW) {
-            out.add(new TextComponent(text));
-            return out;
-        }
-
-        // 当前生效的颜色代码（如 "§7"）
-        String currentColor = "";
-
-        int start = 0;
-        int len = text.length();
-        while (start < len) {
-            int end = start;
-            int lastSpace = -1;
-
-            // 本行起点附加当前颜色
-            String linePrefix = currentColor;
-
-            while (end < len) {
-                char c = text.charAt(end);
-
-                // 遇到 §，记录颜色代码并跳过
-                if (c == '\u00A7' && end + 1 < len) {
-                    char code = Character.toLowerCase(text.charAt(end + 1));
-                    if (isColorCode(code)) {
-                        currentColor = "\u00A7" + text.charAt(end + 1);
-                    }
-                    if (font.width(linePrefix
-                            + text.substring(start, Math.min(end + 2, len))) > maxW
-                            && end > start) {
-                        break;
-                    }
-                    end += 2;
-                    continue;
-                }
-
-                if (font.width(linePrefix + text.substring(start, end + 1)) > maxW) {
-                    break;
-                }
-                if (c == ' ') {
-                    lastSpace = end;
-                }
-                end++;
-            }
-
-            if (end >= len) {
-                out.add(new TextComponent(linePrefix + text.substring(start)));
-                break;
-            }
-
-            int cut;
-            if (lastSpace > start) {
-                cut = lastSpace + 1;
-            } else {
-                cut = end;
-            }
-            if (cut <= start) cut = start + 1;
-
-            // 取本行文本（含内部颜色代码），去掉行尾空白
-            String line = text.substring(start, cut);
-            out.add(new TextComponent(linePrefix + line));
-            start = cut;
-        }
-        return out;
-    }
-
-    /** 判断是否是 § 颜色/格式代码（0-9 a-f k-o r）。 */
-    private static boolean isColorCode(char c) {
-        c = Character.toLowerCase(c);
-        return (c >= '0' && c <= '9')
-                || (c >= 'a' && c <= 'f')
-                || (c >= 'k' && c <= 'o')
-                || c == 'r';
     }
 
     private void drawSlotBg(PoseStack ps, int x, int y, int mouseX, int mouseY) {

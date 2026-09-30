@@ -6,7 +6,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiComponent;
 import net.minecraft.network.chat.TranslatableComponent;
 import top.leipishu.anvilssearch.client.AnvilPanelLayout;
-import top.leipishu.anvilssearch.data.ToolDefinitionIndex;
+import top.leipishu.anvilssearch.data.tool.ToolDefinitionIndex;
 import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
 

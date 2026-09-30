@@ -1,8 +1,8 @@
 package top.leipishu.anvilssearch.client;
 
-import top.leipishu.anvilssearch.data.PartMaterialIndex;
-import top.leipishu.anvilssearch.data.ToolDefinitionIndex;
-import top.leipishu.anvilssearch.data.MaterialFluidResolver;
+import top.leipishu.anvilssearch.data.material.PartMaterialIndex;
+import top.leipishu.anvilssearch.data.tool.ToolDefinitionIndex;
+import top.leipishu.anvilssearch.data.material.MaterialFluidResolver;
 
 /**
  * 打开面板时通知各数据层做懒加载；
