@@ -1322,6 +1322,10 @@ public class ModifierSearchTab implements AnvilTab {
         return y + cardH + CARD_GAP;
     }
 
+    /**
+     * 按宽度自动换行。
+     * 保留 § 颜色代码：换行后每行开头重新附加当前生效的颜色。
+     */
     private static List<Component> wrapComponent(Font font, Component src, int maxW) {
         List<Component> out = new ArrayList<>();
         if (src == null) return out;
@@ -1335,17 +1339,29 @@ public class ModifierSearchTab implements AnvilTab {
             return out;
         }
 
+        // 当前生效的颜色代码（如 "§7"）
+        String currentColor = "";
+
         int start = 0;
         int len = text.length();
         while (start < len) {
             int end = start;
             int lastSpace = -1;
 
+            // 本行起点附加当前颜色
+            String linePrefix = currentColor;
+
             while (end < len) {
                 char c = text.charAt(end);
 
+                // 遇到 §，记录颜色代码并跳过
                 if (c == '\u00A7' && end + 1 < len) {
-                    if (font.width(text.substring(start, Math.min(end + 2, len))) > maxW
+                    char code = Character.toLowerCase(text.charAt(end + 1));
+                    if (isColorCode(code)) {
+                        currentColor = "\u00A7" + text.charAt(end + 1);
+                    }
+                    if (font.width(linePrefix
+                            + text.substring(start, Math.min(end + 2, len))) > maxW
                             && end > start) {
                         break;
                     }
@@ -1353,7 +1369,7 @@ public class ModifierSearchTab implements AnvilTab {
                     continue;
                 }
 
-                if (font.width(text.substring(start, end + 1)) > maxW) {
+                if (font.width(linePrefix + text.substring(start, end + 1)) > maxW) {
                     break;
                 }
                 if (c == ' ') {
@@ -1363,7 +1379,7 @@ public class ModifierSearchTab implements AnvilTab {
             }
 
             if (end >= len) {
-                out.add(new TextComponent(text.substring(start)));
+                out.add(new TextComponent(linePrefix + text.substring(start)));
                 break;
             }
 
@@ -1375,10 +1391,21 @@ public class ModifierSearchTab implements AnvilTab {
             }
             if (cut <= start) cut = start + 1;
 
-            out.add(new TextComponent(text.substring(start, cut)));
+            // 取本行文本（含内部颜色代码），去掉行尾空白
+            String line = text.substring(start, cut);
+            out.add(new TextComponent(linePrefix + line));
             start = cut;
         }
         return out;
+    }
+
+    /** 判断是否是 § 颜色/格式代码（0-9 a-f k-o r）。 */
+    private static boolean isColorCode(char c) {
+        c = Character.toLowerCase(c);
+        return (c >= '0' && c <= '9')
+                || (c >= 'a' && c <= 'f')
+                || (c >= 'k' && c <= 'o')
+                || c == 'r';
     }
 
     private void drawSlotBg(PoseStack ps, int x, int y, int mouseX, int mouseY) {
