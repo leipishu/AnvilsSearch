@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -53,17 +54,11 @@ public class ModifierSearchTab implements AnvilTab {
     private static final int SLOT_SIZE = AnvilTheme.SLOT_SIZE;
     private static final int SLOT_GAP  = AnvilTheme.SLOT_GAP;
 
-    /** 顶部工具栏高度：与原搜索框同高。 */
     private static final int TOOLBAR_H   = 16;
-    /** 工具栏与卡片区域之间的垂直间隔。 */
     private static final int TOOLBAR_GAP = 3;
-    /** 工具栏内组件水平间隔。 */
     private static final int TOOLBAR_ITEM_GAP = 3;
-    /** 星标按钮宽度。 */
     private static final int STAR_BTN_W = 16;
-    /** 图标按钮宽度。 */
     private static final int ICON_BTN_W = 16;
-    /** 槽位按钮宽度。 */
     private static final int SLOT_BTN_W = 80;
 
     private static final int STAR_W = 12;
@@ -72,6 +67,9 @@ public class ModifierSearchTab implements AnvilTab {
     private static final int DROP_ITEM_H   = 16;
     private static final int DROP_BTN_H    = 14;
     private static final int DROP_BTN_PAD  = 4;
+
+    /** 图标循环周期（tick）：每秒切换一次。 */
+    private static final int CYCLE_TICKS = 20;
 
     private static final String SLOT_NONE = "__none__";
     private static final int CARD_ACCENT_ERROR = 0xFFFF5555;
@@ -82,16 +80,14 @@ public class ModifierSearchTab implements AnvilTab {
     private List<ModifierIndex.Entry> filtered   = new ArrayList<>();
     private List<String> slotTypes = new ArrayList<>();
 
-    // ===== 筛选状态 =====
     private boolean favoritesOnly = false;
-    private boolean filterIncremental = false;   // 只显示叠加配方
-    private boolean filterUnlimited = false;     // 只显示无上限配方
-    private boolean filterReqMet = false;        // 只显示已达成前置的
+    private boolean filterIncremental = false;
+    private boolean filterUnlimited = false;
+    private boolean filterReqMet = false;
     private final Set<String> slotFilter = new LinkedHashSet<>();
     private boolean slotDropdownOpen = false;
     private int slotDropdownX, slotDropdownY, slotDropdownW, slotDropdownH;
 
-    // "达成前置"验证结果的缓存
     private final Map<String, Boolean> reqMetCache = new HashMap<>();
     private ItemStack reqMetCacheItem = ItemStack.EMPTY;
 
@@ -109,7 +105,6 @@ public class ModifierSearchTab implements AnvilTab {
     private int rightScrollOffset = 0;
     private int rightMaxScroll = 0;
 
-    // 工具栏定位缓存
     private int toolbarY;
     private int toolbarStarX, toolbarStarW;
     private int toolbarIncX, toolbarIncW;
@@ -213,7 +208,6 @@ public class ModifierSearchTab implements AnvilTab {
         ItemStack center = AnvilSlotAccess.getCenterItem();
         boolean hasItem = center != null && !center.isEmpty();
 
-        // 前置验证缓存：工具变化时清空
         if (!sameStack(center, reqMetCacheItem)) {
             reqMetCache.clear();
             reqMetCacheItem = (center == null) ? ItemStack.EMPTY : center.copy();
@@ -225,11 +219,8 @@ public class ModifierSearchTab implements AnvilTab {
             if (favoritesOnly && !FavoritesStore.isFavorite(e.id)) continue;
             if (!slotFilter.isEmpty() && !matchesSlotFilter(e)) continue;
 
-            // 类型筛选
             if (filterIncremental && !isIncrementalOnly(e)) continue;
             if (filterUnlimited && !isUnlimitedOnly(e)) continue;
-
-            // 前置达成筛选：需要当前工具
             if (filterReqMet && hasItem && !isRequirementsMet(e, center)) continue;
 
             ModifierIndex.Entry displayEntry = e;
@@ -273,19 +264,16 @@ public class ModifierSearchTab implements AnvilTab {
         lastReqItem = ItemStack.EMPTY;
     }
 
-    /** 仅叠加配方（INCREMENTAL）。 */
     private static boolean isIncrementalOnly(ModifierIndex.Entry e) {
         return !e.levels.isEmpty()
                 && e.levels.get(0).kind == ModifierIndex.RecipeKind.INCREMENTAL;
     }
 
-    /** 仅无上限配方（UNLIMITED）。 */
     private static boolean isUnlimitedOnly(ModifierIndex.Entry e) {
         return !e.levels.isEmpty()
                 && e.levels.get(0).kind == ModifierIndex.RecipeKind.UNLIMITED;
     }
 
-    /** 判断该条目的前置条件是否已满足（用当前工具验证）。 */
     private boolean isRequirementsMet(ModifierIndex.Entry e, ItemStack tool) {
         if (tool == null || tool.isEmpty()) return true;
         if (e.levels.isEmpty()) return true;
@@ -299,9 +287,6 @@ public class ModifierSearchTab implements AnvilTab {
                 ? e.levels.get(0).recipe : e.recipe;
         Optional<Component> r = checkRequirements(recipeForCheck, container);
 
-        // null 无法判断 → 视为通过（保守显示）
-        // Optional.empty() 满足 → 通过
-        // Optional.of(...) 不满足 → 不通过
         boolean met = (r == null) || !r.isPresent();
         reqMetCache.put(key, met);
         return met;
@@ -394,6 +379,88 @@ public class ModifierSearchTab implements AnvilTab {
         return selected.levels.get(0);
     }
 
+
+    /**
+     * 生成材料说明。
+     * <p>规则：
+     * <ul>
+     *   <li>每个槽位的候选材料用 "/" 连接，例如 "丝绢/蜘蛛丝"；</li>
+     *   <li>相同候选组的槽位合并数量，例如 5 个 [丝绢] 槽位 → "丝绢 ×5"；</li>
+     *   <li>不同候选组的槽位分别输出。</li>
+     * </ul>
+     * <p>注意：候选组内多个候选 ItemStack 代表"任选其一"，
+     * 数量统计按 <b>槽位数 × 该槽位需求</b> 计算，不累加候选数。
+     */
+    @SuppressWarnings("unchecked")
+    private static List<Component> buildMaterialLines(ModifierIndex.LevelInfo li) {
+        List<Component> out = new ArrayList<>();
+        if (li == null) return out;
+
+        if (li.slotMaterials == null) {
+            return li.materialLines;
+        }
+
+        // key = 候选组签名（按顺序拼接 stackKey）
+        // value = 该组涉及的"槽位需求数量总和"
+        Map<String, Integer> groupTotal = new LinkedHashMap<>();
+        Map<String, List<ItemStack>> groupRep = new LinkedHashMap<>();
+
+        for (List<ItemStack> candidates : li.slotMaterials) {
+            if (candidates == null || candidates.isEmpty()) continue;
+
+            StringBuilder sig = new StringBuilder();
+            for (ItemStack s : candidates) {
+                if (s == null) continue;
+                sig.append(stackKeyOf(s)).append('|');
+            }
+            String key = sig.toString();
+
+            // ★ 该槽位需要的数量：取第一个非空候选的 count
+            //   同一槽位内候选的数量应一致（都表示"该槽位需要 N 个"），
+            //   不累加候选数量，只取一个。
+            int slotNeed = 1;
+            for (ItemStack s : candidates) {
+                if (s != null && !s.isEmpty()) {
+                    slotNeed = Math.max(1, s.getCount());
+                    break;
+                }
+            }
+
+            groupTotal.merge(key, slotNeed, Integer::sum);
+            groupRep.putIfAbsent(key, candidates);
+        }
+
+        if (groupTotal.isEmpty()) return li.materialLines;
+
+        for (Map.Entry<String, Integer> e : groupTotal.entrySet()) {
+            List<ItemStack> reps = groupRep.get(e.getKey());
+            int total = e.getValue();
+
+            StringBuilder names = new StringBuilder();
+            for (int i = 0; i < reps.size(); i++) {
+                if (i > 0) names.append('/');
+                names.append(reps.get(i).getHoverName().getString());
+            }
+
+            out.add(new TextComponent("\u00A77"
+                    + names.toString()
+                    + (total > 1 ? " \u00D7" + total : "")));
+        }
+        return out;
+    }
+
+    private static String stackKeyOf(ItemStack stack) {
+        try {
+            String regName = stack.getItem().getRegistryName() != null
+                    ? stack.getItem().getRegistryName().toString()
+                    : stack.getItem().toString();
+            String nbt = stack.getTag() != null ? stack.getTag().toString() : "";
+            return regName + "|" + nbt;
+        } catch (Throwable t) {
+            return stack.toString();
+        }
+    }
+
     private static int readableTint(int color) {
         int r = (color >> 16) & 0xFF;
         int g = (color >> 8) & 0xFF;
@@ -440,11 +507,9 @@ public class ModifierSearchTab implements AnvilTab {
 
         contentRightEdge = contentRight;
 
-        // 顶部工具栏
         toolbarY = areaTop;
         renderToolbar(ps, font, contentLeft, areaTop, totalW, mouseX, mouseY);
 
-        // 卡片区域
         int cardsTop = areaTop + TOOLBAR_H + TOOLBAR_GAP;
         int cardsH = areaBottom - cardsTop;
         if (cardsH < 20) {
@@ -463,10 +528,6 @@ public class ModifierSearchTab implements AnvilTab {
         if (slotDropdownOpen) renderSlotDropdown(ps, font, mouseX, mouseY);
     }
 
-    /**
-     * 顶部工具栏：
-     * [==== 搜索框 ====] [★] [⚡] [∞] [✓] [槽位 ▾]
-     */
     private void renderToolbar(PoseStack ps, Font font,
                                int x, int y, int w,
                                int mouseX, int mouseY) {
@@ -478,7 +539,6 @@ public class ModifierSearchTab implements AnvilTab {
         int fixed = starW + iconW * 3 + slotW + gap * 5;
         int searchW = w - fixed;
         if (searchW < 60) {
-            // 空间不足：压缩槽位按钮
             slotW = Math.max(50, w / 5);
             searchW = Math.max(60, w - starW - iconW * 3 - slotW - gap * 5);
         }
@@ -501,18 +561,15 @@ public class ModifierSearchTab implements AnvilTab {
         toolbarSlotX = slotX;
         toolbarSlotW = slotW;
 
-        // 搜索框
         searchBox.setBounds(searchX, y, searchW, TOOLBAR_H);
         searchBox.render(ps, mouseX, mouseY, font);
 
-        // 星标
         boolean starHover = mouseX >= starX && mouseX <= starX + starW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
         String starLabel = favoritesOnly ? "\u2605" : "\u2606";
         AnvilTheme.button(ps, font, starX, y, starW, TOOLBAR_H,
                 starLabel, starHover, favoritesOnly);
 
-        // 叠加配方筛选 ⚡
         boolean incHover = mouseX >= incX && mouseX <= incX + iconW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
         AnvilTheme.button(ps, font, incX, y, iconW, TOOLBAR_H,
@@ -524,7 +581,6 @@ public class ModifierSearchTab implements AnvilTab {
             panel.setPendingTooltip(tip);
         }
 
-        // 无限配方筛选 ∞
         boolean unlHover = mouseX >= unlX && mouseX <= unlX + iconW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
         AnvilTheme.button(ps, font, unlX, y, iconW, TOOLBAR_H,
@@ -536,7 +592,6 @@ public class ModifierSearchTab implements AnvilTab {
             panel.setPendingTooltip(tip);
         }
 
-        // 达成前置筛选 ✓
         boolean metHover = mouseX >= metX && mouseX <= metX + iconW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
         AnvilTheme.button(ps, font, metX, y, iconW, TOOLBAR_H,
@@ -548,7 +603,6 @@ public class ModifierSearchTab implements AnvilTab {
             panel.setPendingTooltip(tip);
         }
 
-        // 槽位筛选
         boolean slotHover = mouseX >= slotX && mouseX <= slotX + slotW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
         boolean slotActive = !slotFilter.isEmpty();
@@ -867,12 +921,20 @@ public class ModifierSearchTab implements AnvilTab {
         for (int i = 0; i < 5; i++) matIcons[i] = ItemStack.EMPTY;
 
         ModifierIndex.LevelInfo selLi = getSelectedLevelInfo();
+
+        // ★ 图标循环：每秒切换一次候选
+        long tick = 0;
+        if (Minecraft.getInstance().level != null) {
+            tick = Minecraft.getInstance().level.getGameTime();
+        }
+        int cycle = (int) (tick / CYCLE_TICKS);
+
         if (selLi != null && selLi.slotMaterials != null) {
             for (int i = 0; i < 5; i++) {
                 List<ItemStack> sl = selLi.slotMaterials[i];
-                if (sl != null && !sl.isEmpty()) {
-                    matIcons[i] = sl.get(0);
-                }
+                if (sl == null || sl.isEmpty()) continue;
+                int idx = cycle % sl.size();
+                matIcons[i] = sl.get(idx);
             }
         } else if (selLi != null) {
             for (int i = 0; i < Math.min(5, selLi.materials.size()); i++) {
@@ -992,27 +1054,35 @@ public class ModifierSearchTab implements AnvilTab {
         List<Component> c2 = new ArrayList<>();
         c2.add(buildSlotLine(selLi));
 
+        // ★ 黄色提示也走 wrap，避免被卡片区域切割
         if (selLi.kind == ModifierIndex.RecipeKind.INCREMENTAL
                 && selLi.amountPerInput > 0 && selLi.neededPerLevel > 0) {
-            c2.add(new TextComponent("\u00A7e"
+            Component hint = new TextComponent("\u00A7e"
                     + new TranslatableComponent(
                     "gui.anvilssearch.modifier.incremental_summary",
-                    selLi.amountPerInput, selLi.neededPerLevel).getString()));
+                    selLi.amountPerInput, selLi.neededPerLevel).getString());
+            c2.addAll(wrapComponent(font, hint, maxTextW));
         } else if (selLi.kind == ModifierIndex.RecipeKind.UNLIMITED) {
-            c2.add(new TextComponent("\u00A7e"
+            Component hint = new TextComponent("\u00A7e"
                     + new TranslatableComponent(
-                    "gui.anvilssearch.modifier.unlimited_hint").getString()));
+                    "gui.anvilssearch.modifier.unlimited_hint").getString());
+            c2.addAll(wrapComponent(font, hint, maxTextW));
         }
 
         if (selLi.variant != null) {
-            c2.add(new TextComponent("\u00A7" + new TranslatableComponent(
+            Component varLine = new TextComponent("\u00A77"
+                    + new TranslatableComponent(
                     "gui.anvilssearch.modifier.variant").getString()
-                    + ": " + selLi.variant.getString()));
+                    + ": " + selLi.variant.getString());
+            c2.addAll(wrapComponent(font, varLine, maxTextW));
         }
 
-        if (!selLi.materialLines.isEmpty()) {
+        // ★ 材料文本合并
+        List<Component> materialLines = buildMaterialLines(selLi);
+
+        if (!materialLines.isEmpty()) {
             c2.add(new TextComponent(""));
-            for (Component line : selLi.materialLines) {
+            for (Component line : materialLines) {
                 c2.addAll(wrapComponent(font, line, maxTextW));
             }
         } else {
@@ -1386,7 +1456,6 @@ public class ModifierSearchTab implements AnvilTab {
 
         if (scrollBar.tryBeginDrag(mx, my)) return true;
 
-        // 工具栏按钮
         if (my >= toolbarY && my <= toolbarY + TOOLBAR_H) {
             if (mx >= toolbarStarX && mx <= toolbarStarX + toolbarStarW) {
                 favoritesOnly = !favoritesOnly;
