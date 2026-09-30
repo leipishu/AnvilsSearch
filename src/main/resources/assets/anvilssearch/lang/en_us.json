@@ -73,5 +73,9 @@
   "gui.anvilssearch.modifier.variant": "Variant",
 
   "gui.anvilssearch.modifier.unlimited_title": "Unlimited Modifier",
-  "gui.anvilssearch.modifier.unlimited_hint": "No level cap, can be stacked indefinitely"
+  "gui.anvilssearch.modifier.unlimited_hint": "No level cap, can be stacked indefinitely",
+
+  "gui.anvilssearch.modifier.filter.incremental_tip": "Show only incremental modifiers",
+  "gui.anvilssearch.modifier.filter.unlimited_tip": "Show only unlimited-level modifiers",
+  "gui.anvilssearch.modifier.filter.req_met_tip": "Show only modifiers whose requirements are met"
 }
