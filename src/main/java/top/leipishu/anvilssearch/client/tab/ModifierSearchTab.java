@@ -51,11 +51,18 @@ public class ModifierSearchTab implements AnvilTab {
     private static final int SLOT_SIZE = AnvilTheme.SLOT_SIZE;
     private static final int SLOT_GAP  = AnvilTheme.SLOT_GAP;
 
-    private static final int SEARCH_H = 16;
-    private static final int FILTER_H = 16;
+    /** 顶部工具栏高度：与原搜索框同高。 */
+    private static final int TOOLBAR_H   = 16;
+    /** 工具栏与卡片区域之间的垂直间隔：与原搜索框下方间隔一致。 */
+    private static final int TOOLBAR_GAP = 3;
+    /** 工具栏内组件水平间隔。 */
+    private static final int TOOLBAR_ITEM_GAP = 4;
+    /** 星标按钮宽度。 */
+    private static final int STAR_BTN_W = 20;
+    /** 槽位按钮宽度。 */
+    private static final int SLOT_BTN_W = 90;
 
-    private static final int STAR_W     = 12;
-    private static final int STAR_BTN_W = 16;
+    private static final int STAR_W = 12;
 
     private static final int DROP_HEADER_H = 20;
     private static final int DROP_ITEM_H   = 16;
@@ -86,10 +93,15 @@ public class ModifierSearchTab implements AnvilTab {
     private final Set<String> expandedInList = new HashSet<>();
 
     private int leftListX, leftListTop, leftListW, leftListH;
-    private int filterBarY;
     private int rightAreaX, rightAreaY, rightAreaW, rightAreaH;
     private int rightScrollOffset = 0;
     private int rightMaxScroll = 0;
+
+    // 工具栏定位缓存
+    private int toolbarY;
+    private int toolbarStarX, toolbarStarW;
+    private int toolbarSlotX, toolbarSlotW;
+    private int contentRightEdge;
 
     private ItemStack lastCenterItem = ItemStack.EMPTY;
 
@@ -301,7 +313,6 @@ public class ModifierSearchTab implements AnvilTab {
         return false;
     }
 
-    /** 用 ⚡ 图标表示的条目：叠加配方 或 无上限配方。 */
     private static boolean isLightningEntry(ModifierIndex.Entry e) {
         if (e.levels.isEmpty()) return false;
         ModifierIndex.RecipeKind k = e.levels.get(0).kind;
@@ -309,7 +320,6 @@ public class ModifierSearchTab implements AnvilTab {
                 || k == ModifierIndex.RecipeKind.UNLIMITED;
     }
 
-    /** 有多条 level 的条目（展开箭头）。 */
     private static boolean isMultiLevelEntry(ModifierIndex.Entry e) {
         return e.levels.size() > 1;
     }
@@ -344,6 +354,10 @@ public class ModifierSearchTab implements AnvilTab {
         return (color & 0x00FFFFFF) | 0x44000000;
     }
 
+    // ============================================================
+    // ===== 渲染 =================================================
+    // ============================================================
+
     @Override
     public void renderContent(PoseStack ps, Font font,
                               int mouseX, int mouseY, float partialTick,
@@ -359,18 +373,92 @@ public class ModifierSearchTab implements AnvilTab {
         int contentLeft  = px + 5;
         int contentRight = px + pw - 5;
         int areaTop      = py + contentTop;
-        int areaH        = contentBottom - contentTop;
-
+        int areaBottom   = py + contentBottom;
         int totalW = contentRight - contentLeft;
+
+        contentRightEdge = contentRight;
+
+        // ★ 顶部工具栏（横跨整个宽度）
+        toolbarY = areaTop;
+        renderToolbar(ps, font, contentLeft, areaTop, totalW, mouseX, mouseY);
+
+        // ★ 卡片区域：工具栏下方
+        int cardsTop = areaTop + TOOLBAR_H + TOOLBAR_GAP;
+        int cardsH = areaBottom - cardsTop;
+        if (cardsH < 20) {
+            if (slotDropdownOpen) renderSlotDropdown(ps, font, mouseX, mouseY);
+            return;
+        }
+
         int leftW  = (int) (totalW * 0.42f);
         int rightW = totalW - leftW - 4;
         int leftX  = contentLeft;
         int rightX = leftX + leftW + 4;
 
-        renderLeft(ps, font, leftX, areaTop, leftW, areaH, mouseX, mouseY);
-        renderRight(ps, font, rightX, areaTop, rightW, areaH, mouseX, mouseY);
+        renderLeft(ps, font, leftX, cardsTop, leftW, cardsH, mouseX, mouseY);
+        renderRight(ps, font, rightX, cardsTop, rightW, cardsH, mouseX, mouseY);
 
         if (slotDropdownOpen) renderSlotDropdown(ps, font, mouseX, mouseY);
+    }
+
+    /**
+     * 顶部工具栏：搜索框 + 星标 + 槽位筛选。
+     * 布局：[==== 搜索框 ====] [★] [槽位 ▾]
+     */
+    private void renderToolbar(PoseStack ps, Font font,
+                               int x, int y, int w,
+                               int mouseX, int mouseY) {
+        int starW = STAR_BTN_W;
+        int slotW = SLOT_BTN_W;
+        int gap = TOOLBAR_ITEM_GAP;
+
+        int searchW = w - starW - slotW - gap * 2;
+        if (searchW < 40) {
+            // 窗口太窄：均分
+            searchW = Math.max(40, w / 3);
+            starW = Math.max(16, Math.min(STAR_BTN_W, (w - searchW) / 3));
+            slotW = Math.max(40, w - searchW - starW - gap * 2);
+        }
+
+        int searchX = x;
+        int starX = searchX + searchW + gap;
+        int slotX = starX + starW + gap;
+
+        toolbarStarX = starX;
+        toolbarStarW = starW;
+        toolbarSlotX = slotX;
+        toolbarSlotW = slotW;
+
+        // 搜索框
+        searchBox.setBounds(searchX, y, searchW, TOOLBAR_H);
+        searchBox.render(ps, mouseX, mouseY, font);
+
+        // 星标按钮
+        boolean starHover = mouseX >= starX && mouseX <= starX + starW
+                && mouseY >= y && mouseY <= y + TOOLBAR_H;
+        String starLabel = favoritesOnly ? "\u2605" : "\u2606";
+        AnvilTheme.button(ps, font, starX, y, starW, TOOLBAR_H,
+                starLabel, starHover, favoritesOnly);
+
+        // 槽位筛选按钮
+        boolean slotHover = mouseX >= slotX && mouseX <= slotX + slotW
+                && mouseY >= y && mouseY <= y + TOOLBAR_H;
+        boolean slotActive = !slotFilter.isEmpty();
+
+        String label;
+        if (slotActive) {
+            label = new TranslatableComponent(
+                    "gui.anvilssearch.modifier.filter.slots_n",
+                    slotFilter.size()).getString();
+        } else {
+            label = new TranslatableComponent(
+                    "gui.anvilssearch.modifier.filter.slots").getString();
+        }
+        if (font.width(label) > slotW - 6) {
+            label = font.plainSubstrByWidth(label, slotW - 10) + "...";
+        }
+        AnvilTheme.button(ps, font, slotX, y, slotW, TOOLBAR_H,
+                label, slotHover, slotActive);
     }
 
     private static boolean sameStack(ItemStack a, ItemStack b) {
@@ -381,6 +469,10 @@ public class ModifierSearchTab implements AnvilTab {
         return ItemStack.isSameItemSameTags(a, b) && a.getCount() == b.getCount();
     }
 
+    // ============================================================
+    // ===== 左栏（列表）=========================================
+    // ============================================================
+
     private void renderLeft(PoseStack ps, Font font,
                             int x, int y, int w, int h,
                             int mouseX, int mouseY) {
@@ -390,14 +482,8 @@ public class ModifierSearchTab implements AnvilTab {
         int innerX = x + pad;
         int innerW = w - pad * 2;
 
-        searchBox.setBounds(innerX, y + pad, innerW, SEARCH_H);
-        searchBox.render(ps, mouseX, mouseY, font);
-
-        int filterY = y + pad + SEARCH_H + 3;
-        filterBarY = filterY;
-        renderFilterBar(ps, font, innerX, filterY, innerW, mouseX, mouseY);
-
-        int listTop = filterY + FILTER_H + 3;
+        // 工具栏已抽走，列表直接占满卡片
+        int listTop = y + pad;
         int listH = (y + h) - listTop - pad;
         int listW = innerW;
 
@@ -467,48 +553,17 @@ public class ModifierSearchTab implements AnvilTab {
         }
     }
 
-    private void renderFilterBar(PoseStack ps, Font font,
-                                 int x, int y, int w,
-                                 int mouseX, int mouseY) {
-        boolean starHover = mouseX >= x && mouseX <= x + STAR_BTN_W
-                && mouseY >= y && mouseY <= y + FILTER_H;
-        String starLabel = favoritesOnly ? "\u2605" : "\u2606";
-        AnvilTheme.button(ps, font, x, y, STAR_BTN_W, FILTER_H,
-                starLabel, starHover, favoritesOnly);
-
-        int slotBtnX = x + STAR_BTN_W + 2;
-        int slotBtnW = w - STAR_BTN_W - 2;
-        if (slotBtnW < 10) return;
-
-        boolean slotHover = mouseX >= slotBtnX && mouseX <= slotBtnX + slotBtnW
-                && mouseY >= y && mouseY <= y + FILTER_H;
-        boolean slotActive = !slotFilter.isEmpty();
-
-        String label;
-        if (slotActive) {
-            label = new TranslatableComponent(
-                    "gui.anvilssearch.modifier.filter.slots_n",
-                    slotFilter.size()).getString();
-        } else {
-            label = new TranslatableComponent(
-                    "gui.anvilssearch.modifier.filter.slots").getString();
-        }
-        if (font.width(label) > slotBtnW - 6) {
-            label = font.plainSubstrByWidth(label, slotBtnW - 10) + "...";
-        }
-        AnvilTheme.button(ps, font, slotBtnX, y, slotBtnW, FILTER_H,
-                label, slotHover, slotActive);
-    }
-
     private void renderSlotDropdown(PoseStack ps, Font font,
                                     int mouseX, int mouseY) {
         if (slotTypes.isEmpty()) return;
 
-        int w = Math.min(120, leftListW);
+        int w = 120;
         int h = DROP_HEADER_H + slotTypes.size() * DROP_ITEM_H + 6;
 
-        int x = leftListX;
-        int y = filterBarY + FILTER_H + 2;
+        int x = toolbarSlotX;
+        if (x + w > contentRightEdge) x = contentRightEdge - w;
+        if (x < 0) x = 0;
+        int y = toolbarY + TOOLBAR_H + 2;
 
         AnvilTheme.cardBg(ps, x, y, w, h, 0);
 
@@ -598,7 +653,6 @@ public class ModifierSearchTab implements AnvilTab {
         boolean isIcon = false;
         boolean isIconUnlimited = false;
 
-        // 多级优先显示展开箭头；单级的叠加/无上限显示图标
         if (multi) {
             right = expanded ? "\u25BC" : "\u25B6";
             rightW = font.width(right) + 3;
@@ -606,11 +660,9 @@ public class ModifierSearchTab implements AnvilTab {
         } else if (lightning && !e.levels.isEmpty()) {
             ModifierIndex.RecipeKind k = e.levels.get(0).kind;
             if (k == ModifierIndex.RecipeKind.UNLIMITED) {
-                // ★ 无上限：用 ∞ 图标
                 right = "\u221E";
                 isIconUnlimited = true;
             } else {
-                // 叠加配方：用 ⚡ 图标
                 right = "\u26A1";
             }
             rightW = font.width(right) + 3;
@@ -637,7 +689,6 @@ public class ModifierSearchTab implements AnvilTab {
             font.draw(ps, right, rightX, textY, iconColor);
         }
 
-        // 图标 tooltip
         if (isIcon && rightX >= 0) {
             int iconW = font.width(right);
             if (mouseX >= rightX - 2 && mouseX <= rightX + iconW + 2
@@ -686,6 +737,10 @@ public class ModifierSearchTab implements AnvilTab {
                 sel ? readableTint(e.color)
                         : (hover ? AnvilTheme.TEXT_PRIMARY : e.color));
     }
+
+    // ============================================================
+    // ===== 右栏：矩阵 + 卡片 ====================================
+    // ============================================================
 
     @SuppressWarnings("unchecked")
     private void renderRight(PoseStack ps, Font font,
@@ -898,6 +953,10 @@ public class ModifierSearchTab implements AnvilTab {
             }
         }
     }
+
+    // ============================================================
+    // ===== 前置条件动态检查 =====================================
+    // ============================================================
 
     private static Object makeContainer(ItemStack toolStack) {
         if (toolStack == null || toolStack.isEmpty()) return null;
@@ -1170,8 +1229,13 @@ public class ModifierSearchTab implements AnvilTab {
         } catch (Throwable ignored) {}
     }
 
+    // ============================================================
+    // ===== 交互 =================================================
+    // ============================================================
+
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
+        // 槽位下拉优先
         if (slotDropdownOpen) {
             if (mx >= slotDropdownX && mx <= slotDropdownX + slotDropdownW
                     && my >= slotDropdownY && my <= slotDropdownY + slotDropdownH) {
@@ -1217,33 +1281,32 @@ public class ModifierSearchTab implements AnvilTab {
 
         if (scrollBar.tryBeginDrag(mx, my)) return true;
 
-        if (my >= filterBarY && my <= filterBarY + FILTER_H
-                && mx >= leftListX && mx <= leftListX + leftListW) {
-            if (mx >= leftListX && mx <= leftListX + STAR_BTN_W) {
+        // ★ 工具栏按钮
+        if (my >= toolbarY && my <= toolbarY + TOOLBAR_H) {
+            if (mx >= toolbarStarX && mx <= toolbarStarX + toolbarStarW) {
                 favoritesOnly = !favoritesOnly;
                 applyFilter(panel.getSearchKeyword());
                 return true;
             }
-            int slotBtnX = leftListX + STAR_BTN_W + 2;
-            if (mx >= slotBtnX && mx <= leftListX + leftListW) {
+            if (mx >= toolbarSlotX && mx <= toolbarSlotX + toolbarSlotW) {
                 slotDropdownOpen = !slotDropdownOpen;
                 return true;
             }
-            return true;
         }
 
+        // 搜索框
         if (searchBox.mouseClicked(mx, my, button)) {
             searchBox.setFocused(true);
             return true;
         }
         if (searchBox.isFocused()) searchBox.setFocused(false);
 
+        // 列表点击
         if (mx >= leftListX && mx <= leftListX + leftListW
                 && my >= leftListTop && my <= leftListTop + leftListH) {
 
             int rowY = leftListTop - scrollOffset;
             for (ModifierIndex.Entry e : filtered) {
-                boolean lightning = isLightningEntry(e);
                 boolean multi = isMultiLevelEntry(e);
                 boolean expanded = multi && expandedInList.contains(e.id);
 
@@ -1255,7 +1318,6 @@ public class ModifierSearchTab implements AnvilTab {
                         return true;
                     }
                     if (!multi) {
-                        // 单级条目（包括 ⚡ 表示的叠加/无上限）直接选中
                         selected = e;
                         selectedIndex = -1;
                         rightScrollOffset = 0;
@@ -1264,7 +1326,6 @@ public class ModifierSearchTab implements AnvilTab {
                         lastReqItem = ItemStack.EMPTY;
                         return true;
                     }
-                    // 多级：切换展开 + 选中
                     if (expanded) expandedInList.remove(e.id);
                     else expandedInList.add(e.id);
                     selected = e;
