@@ -41,6 +41,9 @@ public class AnvilsSearch {
     private int lastScreenH = -1;
 
     public AnvilsSearch() {
+        // ★ 必须在任何 AWT/Swing 组件被创建之前设置，否则 FileDialog 会抛 HeadlessException
+        System.setProperty("java.awt.headless", "false");
+
         System.out.println("[Anvil's Search] Initializing...");
         MinecraftForge.EVENT_BUS.register(this);
         sidebar = new AnvilSidebarPanel();
@@ -128,23 +131,13 @@ public class AnvilsSearch {
     // ===== 键盘 =================================================
     // ============================================================
 
-    /**
-     * 搜索框聚焦时拦截一切按键。
-     * 对齐本体 TinkersSearch 的行为：只要搜索框聚焦，
-     * 除搜索框自己消费的按键外，其余按键也全部吞掉，
-     * 避免触发工匠站/原界面的快捷键。
-     */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onKeyPressedPre(ScreenEvent.KeyboardKeyPressedEvent.Pre event) {
         if (sidebar == null || !sidebar.isVisible()) return;
         if (!sidebar.isSearchFocused()) return;
 
         int keyCode = event.getKeyCode();
-
-        // 搜索框自己处理（BACKSPACE/DELETE/方向键/ESC/ENTER 等）
         sidebar.handleKeyPressed(keyCode, event.getScanCode(), event.getModifiers());
-
-        // ★ 其余按键也全部吞掉
         event.setCanceled(true);
     }
 
@@ -154,7 +147,6 @@ public class AnvilsSearch {
         if (!sidebar.isSearchFocused()) return;
 
         sidebar.handleCharTyped(event.getCodePoint(), event.getModifiers());
-        // ★ 无条件吞掉字符输入
         event.setCanceled(true);
     }
 
@@ -168,7 +160,6 @@ public class AnvilsSearch {
         double mx = event.getMouseX();
         double my = event.getMouseY();
 
-        // 面板开关按钮
         if (sidebar.isTabButtonClicked(mx, my)) {
             if (!sidebar.isAnimating()) sidebar.toggleVisibility();
             event.setCanceled(true);
@@ -177,7 +168,6 @@ public class AnvilsSearch {
 
         boolean inside = sidebar.isPointInsidePanel(mx, my);
 
-        // ★ 搜索框聚焦时点面板外：取消聚焦 + 吞掉这次点击
         if (sidebar.isSearchFocused() && !inside) {
             sidebar.setSearchFocused(false);
             event.setCanceled(true);
@@ -292,7 +282,6 @@ public class AnvilsSearch {
                 sidebar.render(ps, (int) mx, (int) my, event.getPartialTicks());
             }
 
-            // 按钮先画，tooltip 后画 → tooltip 在按钮之上
             drawTabButton(ps);
 
             renderPanelTooltip();

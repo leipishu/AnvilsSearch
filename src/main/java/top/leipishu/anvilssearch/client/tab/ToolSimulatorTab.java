@@ -2,6 +2,7 @@ package top.leipishu.anvilssearch.client.tab;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiComponent;
 import net.minecraft.network.chat.Component;
@@ -11,30 +12,51 @@ import net.minecraft.world.item.Item;
 import net.minecraftforge.registries.ForgeRegistries;
 import slimeknights.tconstruct.library.materials.definition.MaterialId;
 import slimeknights.tconstruct.library.materials.stats.MaterialStatsId;
+import slimeknights.tconstruct.library.tools.definition.ToolDefinition;
 import top.leipishu.anvilssearch.client.AnvilPanelAnimation;
 import top.leipishu.anvilssearch.client.AnvilPanelLayout;
 import top.leipishu.anvilssearch.client.AnvilSidebarPanel;
 import top.leipishu.anvilssearch.client.AnvilTab;
+import top.leipishu.anvilssearch.client.SystemFileDialogs;
 import top.leipishu.anvilssearch.client.theme.AnvilTheme;
 import top.leipishu.anvilssearch.client.widget.MaterialPickerPopup;
 import top.leipishu.anvilssearch.client.widget.PartSlotWidget;
 import top.leipishu.anvilssearch.client.widget.ToolListWidget;
+import top.leipishu.anvilssearch.client.widget.ToolPresetBrowserPopup;
 import top.leipishu.anvilssearch.client.widget.ToolPreviewPanel;
 import top.leipishu.anvilssearch.data.material.MaterialDetail;
 import top.leipishu.anvilssearch.data.material.MaterialDetailBuilder;
 import top.leipishu.anvilssearch.data.material.PartMaterialIndex;
+import top.leipishu.anvilssearch.data.tool.ToolDefinitionIndex;
+import top.leipishu.anvilssearch.simulation.ToolPreset;
+import top.leipishu.anvilssearch.simulation.ToolPresetCodec;
+import top.leipishu.anvilssearch.simulation.ToolPresetStore;
 import top.leipishu.anvilssearch.simulation.ToolSimulationModel;
 import top.leipishu.anvilssearch.simulation.ToolStatsCalculator;
 import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
 
-import java.util.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
 
 public class ToolSimulatorTab implements AnvilTab {
 
-    private static final int COL_HEADER_H = AnvilTheme.HEADER_H;
+    private static final int COL_HEADER_H = 18;
+
+    // ===== 顶部工具栏 =====
+    private static final int TOOLBAR_H       = 16;
+    private static final int TOOLBAR_GAP     = 4;
+    private static final int TOOLBAR_BTN_W   = 52;
+    private static final int TOOLBAR_BTN_GAP = 4;
+    private static final long FEEDBACK_MS    = 2500L;
 
     private final AnvilSidebarPanel panel;
     private final ToolSimulationModel model = new ToolSimulationModel();
@@ -44,6 +66,7 @@ public class ToolSimulatorTab implements AnvilTab {
     private final List<PartSlotWidget> slotWidgets = new ArrayList<>();
 
     private MaterialPickerPopup popup = null;
+    private ToolPresetBrowserPopup presetPopup = null;
 
     private final Map<Integer, MaterialDetail> cardDetails = new HashMap<>();
 
@@ -53,6 +76,12 @@ public class ToolSimulatorTab implements AnvilTab {
 
     private int lastAreaTop, lastAreaH;
     private int lastMidX, lastMidW;
+
+    // ===== 工具栏状态 =====
+    private int toolbarTopY;
+    private int toolbarSaveX, toolbarExportX, toolbarImportX;
+    private String feedbackText = null;
+    private long   feedbackUntil = 0L;
 
     public ToolSimulatorTab(AnvilSidebarPanel panel) {
         this.panel = panel;
@@ -75,7 +104,7 @@ public class ToolSimulatorTab implements AnvilTab {
     @Override public boolean wantsSearchBox() { return false; }
 
     @Override
-    public void onActivate() { popup = null; }
+    public void onActivate() { popup = null; presetPopup = null; }
 
     @Override
     public List<Component> getPendingTooltip() {
@@ -103,6 +132,10 @@ public class ToolSimulatorTab implements AnvilTab {
         return false;
     }
 
+    // ============================================================
+    // ===== 渲染 =================================================
+    // ============================================================
+
     @Override
     public void renderContent(PoseStack ps, Font font,
                               int mouseX, int mouseY, float partialTick,
@@ -111,19 +144,29 @@ public class ToolSimulatorTab implements AnvilTab {
 
         int contentLeft  = px + 5;
         int contentRight = px + pw - 5;
-        int areaTop      = py + contentTop;
-        int areaH        = contentBottom - contentTop;
+
+        int toolbarTop = py + contentTop;
+        toolbarTopY = toolbarTop;
+        renderToolbar(ps, font, contentLeft, toolbarTop,
+                contentRight - contentLeft, mouseX, mouseY);
+
+        int areaTop = toolbarTop + TOOLBAR_H + TOOLBAR_GAP;
+        int areaH   = (py + contentBottom) - areaTop;
+        if (areaH < 20) {
+            if (presetPopup != null) presetPopup.render(ps, font, mouseX, mouseY);
+            else if (popup != null) popup.render(ps, font, mouseX, mouseY);
+            return;
+        }
 
         lastAreaTop = areaTop;
-        lastAreaH = areaH;
+        lastAreaH   = areaH;
 
         AnvilPanelLayout.ThreeColumn cols = AnvilPanelLayout.computeThreeColumn(
                 contentLeft, contentRight);
-
         lastMidX = cols.midX;
         lastMidW = cols.midW;
 
-        // ===== 左：工具列表 section =====
+        // 左：工具列表
         drawColSection(ps, font,
                 cols.leftX, areaTop, cols.leftW, areaH,
                 new TranslatableComponent("gui.anvilssearch.sim.tools_header").getString());
@@ -134,7 +177,7 @@ public class ToolSimulatorTab implements AnvilTab {
         toolList.setBounds(lInX, lInY, lInW, lInH);
         toolList.render(ps, font, mouseX, mouseY, model.getSelectedTool());
 
-        // ===== 中：部件槽 section =====
+        // 中：部件槽
         drawColSection(ps, font,
                 cols.midX, areaTop, cols.midW, areaH,
                 new TranslatableComponent("gui.anvilssearch.sim.parts_header").getString());
@@ -144,7 +187,7 @@ public class ToolSimulatorTab implements AnvilTab {
         int mInH = areaH - COL_HEADER_H - AnvilTheme.PAD_XS - AnvilTheme.PAD_S;
         renderSlots(ps, font, mInX, mInY, mInW, mInH, mouseX, mouseY);
 
-        // ===== 右：预览 section =====
+        // 右：预览
         drawColSection(ps, font,
                 cols.rightX, areaTop, cols.rightW, areaH,
                 new TranslatableComponent("gui.anvilssearch.sim.preview_header").getString());
@@ -161,19 +204,205 @@ public class ToolSimulatorTab implements AnvilTab {
         }
 
         if (popup != null) popup.render(ps, font, mouseX, mouseY);
+        if (presetPopup != null) presetPopup.render(ps, font, mouseX, mouseY);
     }
 
-    /** 统一栏：section 底 + 顶部 header 条。 */
     private static void drawColSection(PoseStack ps, Font font,
                                        int x, int y, int w, int h, String label) {
         AnvilTheme.section(ps, x, y, w, h);
-        GuiComponent.fill(ps, x + 1, y + 1, x + w - 1, y + COL_HEADER_H,
-                AnvilTheme.SECTION_HEADER_BG);
-        GuiComponent.fill(ps, x + 1, y + COL_HEADER_H,
-                x + w - 1, y + COL_HEADER_H + 1, AnvilTheme.SECTION_BORDER);
-        font.draw(ps, "\u00A76" + label, x + AnvilTheme.PAD_M,
-                AnvilTheme.centeredTextY(y, COL_HEADER_H, font), 0xFFFFFF);
+        int titleY = y + (COL_HEADER_H - font.lineHeight) / 2;
+        font.draw(ps, label, x + AnvilTheme.PAD_M, titleY, AnvilTheme.ACCENT);
+        GuiComponent.fill(ps, x + AnvilTheme.PAD_S, y + COL_HEADER_H - 1,
+                x + w - AnvilTheme.PAD_S, y + COL_HEADER_H,
+                AnvilTheme.SECTION_BORDER);
     }
+
+    // ============================================================
+    // ===== 顶部工具栏 ===========================================
+    // ============================================================
+
+    private void renderToolbar(PoseStack ps, Font font,
+                               int x, int y, int w,
+                               int mouseX, int mouseY) {
+
+        toolbarSaveX   = x;
+        toolbarExportX = x + TOOLBAR_BTN_W + TOOLBAR_BTN_GAP;
+        toolbarImportX = x + (TOOLBAR_BTN_W + TOOLBAR_BTN_GAP) * 2;
+
+        boolean h1 = inRect(mouseX, mouseY, toolbarSaveX,   y, TOOLBAR_BTN_W, TOOLBAR_H);
+        boolean h2 = inRect(mouseX, mouseY, toolbarExportX, y, TOOLBAR_BTN_W, TOOLBAR_H);
+        boolean h3 = inRect(mouseX, mouseY, toolbarImportX, y, TOOLBAR_BTN_W, TOOLBAR_H);
+
+        AnvilTheme.button(ps, font, toolbarSaveX, y, TOOLBAR_BTN_W, TOOLBAR_H,
+                new TranslatableComponent("gui.anvilssearch.sim.save").getString(),
+                h1, false);
+        if (h1) tooltip("gui.anvilssearch.sim.save.tip");
+
+        AnvilTheme.button(ps, font, toolbarExportX, y, TOOLBAR_BTN_W, TOOLBAR_H,
+                new TranslatableComponent("gui.anvilssearch.sim.export").getString(),
+                h2, false);
+        if (h2) tooltip("gui.anvilssearch.sim.export.tip");
+
+        AnvilTheme.button(ps, font, toolbarImportX, y, TOOLBAR_BTN_W, TOOLBAR_H,
+                new TranslatableComponent("gui.anvilssearch.sim.import").getString(),
+                h3, false);
+        if (h3) tooltip("gui.anvilssearch.sim.import.tip");
+
+        if (feedbackText != null && System.currentTimeMillis() < feedbackUntil) {
+            int fx = toolbarImportX + TOOLBAR_BTN_W + 8;
+            int fy = y + (TOOLBAR_H - font.lineHeight) / 2;
+            font.draw(ps, feedbackText, fx, fy, AnvilTheme.ACCENT_SOFT);
+        }
+    }
+
+    private void tooltip(String key) {
+        List<Component> tip = new ArrayList<>();
+        tip.add(new TranslatableComponent(key));
+        panel.setPendingTooltip(tip);
+    }
+
+    private static boolean inRect(double mx, double my, int x, int y, int w, int h) {
+        return mx >= x && mx <= x + w && my >= y && my <= y + h;
+    }
+
+    private void setFeedback(Component c) {
+        this.feedbackText = (c == null) ? null : c.getString();
+        this.feedbackUntil = System.currentTimeMillis() + FEEDBACK_MS;
+    }
+
+    // ============================================================
+    // ===== 保存 / 导出 / 导入 ===================================
+    // ============================================================
+
+    private ToolPreset buildCurrentPreset() {
+        ToolDefinition def = model.getSelectedTool();
+        if (def == null || def.getId() == null) return null;
+
+        Map<Integer, MaterialId> mats = new LinkedHashMap<>();
+        for (int i = 0; i < model.getSlotCount(); i++) {
+            MaterialId m = model.getSelection(i);
+            if (m != null) mats.put(i, m);
+        }
+        return new ToolPreset(def.getId().toString(), mats, System.currentTimeMillis());
+    }
+
+    /** 保存到 config/anvilssearch-presets/ */
+    private void doSave() {
+        ToolPreset preset = buildCurrentPreset();
+        if (preset == null) {
+            setFeedback(new TranslatableComponent("gui.anvilssearch.sim.import.empty"));
+            return;
+        }
+        Path p = ToolPresetStore.save(preset);
+        setFeedback(new TranslatableComponent(p != null
+                ? "gui.anvilssearch.sim.save.ok"
+                : "gui.anvilssearch.sim.save.fail"));
+    }
+
+    /** 通过系统原生对话框导出 */
+    private void doExportFile() {
+        ToolPreset preset = buildCurrentPreset();
+        if (preset == null) {
+            setFeedback(new TranslatableComponent("gui.anvilssearch.sim.import.empty"));
+            return;
+        }
+
+        String defaultName = preset.toolId.replace(':', '_') + ".json";
+        SystemFileDialogs.save(defaultName, path -> {
+            try {
+                Files.writeString(path, ToolPresetCodec.encode(preset),
+                        StandardCharsets.UTF_8);
+                setFeedback(new TranslatableComponent("gui.anvilssearch.sim.export.ok"));
+            } catch (Throwable t) {
+                setFeedback(new TranslatableComponent("gui.anvilssearch.sim.export.fail"));
+            }
+        });
+    }
+
+    /** 打开方案浏览器 */
+    private void openPresetBrowser() {
+        List<ToolPreset> list = ToolPresetStore.listAll();
+        presetPopup = new ToolPresetBrowserPopup(
+                list,
+                p -> { applyPreset(p); presetPopup = null; },
+                this::doImportClipboard,
+                this::doImportFile);
+        int pxAbs = panel.getPanelX() + panel.getAnimationOffset();
+        int pw = panel.getPanelWidth();
+        int popW = Math.min(240, pw - 20);
+        int popH = Math.min(260, panel.getPanelHeight() - 100);
+        presetPopup.setBounds(pxAbs + (pw - popW) / 2,
+                panel.getPanelY() + 50, popW, popH);
+    }
+
+    /** 从剪贴板导入 */
+    private void doImportClipboard() {
+        String json = null;
+        try { json = Minecraft.getInstance().keyboardHandler.getClipboard(); }
+        catch (Throwable ignored) {}
+
+        ToolPreset p = ToolPresetCodec.decode(json);
+        if (p == null) {
+            setFeedback(new TranslatableComponent("gui.anvilssearch.sim.import.fail"));
+            return;
+        }
+        applyPreset(p);
+    }
+
+    /** 从文件导入（系统原生对话框） */
+    private void doImportFile() {
+        SystemFileDialogs.open(path -> {
+            try {
+                String json = Files.readString(path, StandardCharsets.UTF_8);
+                ToolPreset p = ToolPresetCodec.decode(json);
+                if (p == null) {
+                    setFeedback(new TranslatableComponent(
+                            "gui.anvilssearch.sim.import.fail"));
+                    return;
+                }
+                applyPreset(p);
+            } catch (Throwable t) {
+                setFeedback(new TranslatableComponent("gui.anvilssearch.sim.import.fail"));
+            }
+        });
+    }
+
+    /** 应用 ToolPreset 到模型 */
+    private void applyPreset(ToolPreset preset) {
+        if (preset == null || preset.toolId == null) return;
+
+        ResourceLocation want;
+        try { want = new ResourceLocation(preset.toolId); }
+        catch (Throwable t) { return; }
+
+        ToolDefinitionIndex.Entry found = null;
+        for (ToolDefinitionIndex.Entry e : ToolDefinitionIndex.get()) {
+            if (e.id != null && e.id.equals(want)) { found = e; break; }
+        }
+        if (found == null) {
+            setFeedback(new TranslatableComponent(
+                    "gui.anvilssearch.sim.import.unknown_tool", preset.toolId));
+            return;
+        }
+
+        model.selectTool(found.definition);
+        slotWidgets.clear();
+        cardDetails.clear();
+        previewPanel.clearExpandState();
+        midScrollOffset = 0;
+
+        for (Map.Entry<Integer, MaterialId> e : preset.materials.entrySet()) {
+            model.setSelection(e.getKey(), e.getValue());
+        }
+
+        rebuildSlotsIfNeeded();
+        presetPopup = null;
+        setFeedback(new TranslatableComponent("gui.anvilssearch.sim.import.ok"));
+    }
+
+    // ============================================================
+    // ===== 部件槽渲染 ===========================================
+    // ============================================================
 
     private void renderSlots(PoseStack ps, Font font,
                              int x, int y, int w, int h,
@@ -203,7 +432,6 @@ public class ToolSimulatorTab implements AnvilTab {
         boolean scissorOk = ScissorHelper.enableScissor(x, y, areaW, areaH);
         try {
             if (scissorOk) RenderSystem.disableDepthTest();
-
             int sy = y - midScrollOffset;
             for (int i = 0; i < slotWidgets.size(); i++) {
                 PartSlotWidget slot = slotWidgets.get(i);
@@ -253,14 +481,38 @@ public class ToolSimulatorTab implements AnvilTab {
         previewPanel.clearExpandState();
     }
 
+    // ============================================================
+    // ===== 交互 =================================================
+    // ============================================================
+
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
+        if (presetPopup != null) {
+            if (presetPopup.isPointInside(mx, my)) {
+                presetPopup.mouseClicked(mx, my, button);
+                return true;
+            } else {
+                presetPopup = null;
+            }
+        }
         if (popup != null) {
             if (popup.isPointInside(mx, my)) {
                 popup.mouseClicked(mx, my, button);
                 return true;
             } else {
                 popup = null;
+            }
+        }
+
+        if (my >= toolbarTopY && my <= toolbarTopY + TOOLBAR_H) {
+            if (inRect(mx, my, toolbarSaveX,   toolbarTopY, TOOLBAR_BTN_W, TOOLBAR_H)) {
+                doSave(); return true;
+            }
+            if (inRect(mx, my, toolbarExportX, toolbarTopY, TOOLBAR_BTN_W, TOOLBAR_H)) {
+                doExportFile(); return true;
+            }
+            if (inRect(mx, my, toolbarImportX, toolbarTopY, TOOLBAR_BTN_W, TOOLBAR_H)) {
+                openPresetBrowser(); return true;
             }
         }
 
@@ -360,6 +612,9 @@ public class ToolSimulatorTab implements AnvilTab {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double delta) {
+        if (presetPopup != null && presetPopup.isPointInside(mx, my)) {
+            return presetPopup.mouseScrolled(mx, my, delta);
+        }
         if (popup != null && popup.isPointInside(mx, my)) {
             return popup.mouseScrolled(mx, my, delta);
         }
@@ -383,6 +638,7 @@ public class ToolSimulatorTab implements AnvilTab {
 
     @Override
     public boolean mouseDragged(double mx, double my) {
+        if (presetPopup != null && presetPopup.isDragging()) return presetPopup.mouseDragged(my);
         if (popup != null) return popup.mouseDragged(my);
         if (midScrollBar.isDragging()) return midScrollBar.updateDrag(my);
         if (previewPanel.isDragging()) return previewPanel.mouseDragged(my);
@@ -391,6 +647,7 @@ public class ToolSimulatorTab implements AnvilTab {
 
     @Override
     public void mouseReleased() {
+        if (presetPopup != null) presetPopup.mouseReleased();
         if (popup != null) popup.mouseReleased();
         midScrollBar.endDrag();
         previewPanel.mouseReleased();
@@ -399,6 +656,7 @@ public class ToolSimulatorTab implements AnvilTab {
 
     @Override
     public boolean isDraggingScrollBar() {
+        if (presetPopup != null && presetPopup.isDragging()) return true;
         if (popup != null && popup.isDragging()) return true;
         if (midScrollBar.isDragging()) return true;
         if (previewPanel.isDragging()) return true;

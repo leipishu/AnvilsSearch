@@ -81,6 +81,29 @@
   "gui.anvilssearch.modifier.filter.req_met_tip": "只显示已达成前置的强化",
 
   "gui.anvilssearch.modifier.slot.not_required": "该槽位不需要材料",
-  "gui.anvilssearch.modifier.slot.expected": "需要放入："
+  "gui.anvilssearch.modifier.slot.expected": "需要放入：",
+
+  "gui.anvilssearch.sim.save": "保存",
+  "gui.anvilssearch.sim.save.tip": "保存到 config/anvilssearch-presets/",
+  "gui.anvilssearch.sim.save.ok": "已保存",
+  "gui.anvilssearch.sim.save.fail": "保存失败",
+
+  "gui.anvilssearch.sim.export": "导出",
+  "gui.anvilssearch.sim.export.tip": "选择文件位置导出",
+  "gui.anvilssearch.sim.export.ok": "已导出",
+  "gui.anvilssearch.sim.export.fail": "导出失败",
+
+  "gui.anvilssearch.sim.import": "导入",
+  "gui.anvilssearch.sim.import.tip": "打开方案浏览器",
+  "gui.anvilssearch.sim.import.ok": "已导入",
+  "gui.anvilssearch.sim.import.fail": "内容无效",
+  "gui.anvilssearch.sim.import.empty": "请先选择工具",
+  "gui.anvilssearch.sim.import.unknown_tool": "未知工具: %1$s",
+
+  "gui.anvilssearch.sim.browser.title": "已保存方案",
+  "gui.anvilssearch.sim.browser.from_clipboard": "剪贴板",
+  "gui.anvilssearch.sim.browser.from_file": "打开文件",
+  "gui.anvilssearch.sim.browser.empty": "暂无已保存方案",
+  "gui.anvilssearch.sim.browser.parts_suffix": "部件"
 
 }
