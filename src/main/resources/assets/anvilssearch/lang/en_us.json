@@ -77,5 +77,8 @@
 
   "gui.anvilssearch.modifier.filter.incremental_tip": "Show only incremental modifiers",
   "gui.anvilssearch.modifier.filter.unlimited_tip": "Show only unlimited-level modifiers",
-  "gui.anvilssearch.modifier.filter.req_met_tip": "Show only modifiers whose requirements are met"
+  "gui.anvilssearch.modifier.filter.req_met_tip": "Show only modifiers whose requirements are met",
+
+  "gui.anvilssearch.modifier.slot.not_required": "This slot does not require any material",
+  "gui.anvilssearch.modifier.slot.expected": "Needs:"
 }

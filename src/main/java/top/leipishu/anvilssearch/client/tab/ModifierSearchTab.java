@@ -852,8 +852,8 @@ public class ModifierSearchTab implements AnvilTab {
         // ===== 读取砧上实际物品 =====
         ItemStack[] anvilSlots = AnvilSlotAccess.getAllSlots();
 
+        // ★ 只信 getAllSlots 的返回值，避免 getCenterItem 读错槽位
         ItemStack centerItem = (anvilSlots.length > 0) ? anvilSlots[0] : ItemStack.EMPTY;
-        if (centerItem.isEmpty()) centerItem = AnvilSlotAccess.getCenterItem();
         if (centerItem == null) centerItem = ItemStack.EMPTY;
 
         ModifierIndex.LevelInfo selLi = getSelectedLevelInfo();
@@ -867,23 +867,21 @@ public class ModifierSearchTab implements AnvilTab {
         int cycle = (int) (tick / CYCLE_TICKS);
 
         // ===== 每个周围格子的状态 =====
-        ItemStack[] displayIcons = new ItemStack[6];  // 该格显示什么图标
-        boolean[] slotHasItem = new boolean[6];       // 是否有实物或预览
-        boolean[] slotMatched = new boolean[6];       // 实物是否匹配配方
-        boolean[] slotRequired = new boolean[6];      // 配方是否要求该槽位有材料
-        boolean[] slotPreview = new boolean[6];       // 是否是预览（配方候选而非实物）
+        ItemStack[] displayIcons = new ItemStack[6];
+        boolean[] slotHasItem = new boolean[6];
+        boolean[] slotMatched = new boolean[6];
+        boolean[] slotRequired = new boolean[6];
+        boolean[] slotPreview = new boolean[6];
 
         for (int i = 1; i < 6; i++) {
             ItemStack it = (i < anvilSlots.length) ? anvilSlots[i] : ItemStack.EMPTY;
             if (it != null && !it.isEmpty()) {
-                // 砧上有实物
                 displayIcons[i] = it;
                 slotHasItem[i] = true;
                 slotRequired[i] = isSlotRequired(selLi, i);
                 slotMatched[i] = hasSelection && slotRequired[i]
                         && itemMatchesEntry(it, selLi);
             } else if (hasSelection) {
-                // 砧上没放 → 显示配方候选（循环，作预览）
                 List<ItemStack> candidates = null;
                 if (selLi.slotMaterials != null && i - 1 < selLi.slotMaterials.length) {
                     candidates = selLi.slotMaterials[i - 1];
@@ -895,17 +893,22 @@ public class ModifierSearchTab implements AnvilTab {
                     slotRequired[i] = true;
                 }
             }
-            // 其余情况：留空
         }
 
         // ===== 画槽底 + 彩色边框 =====
         for (int i = 1; i < 6; i++) {
             int border = 0;
             if (hasSelection && slotHasItem[i] && !slotPreview[i]) {
-                // 已选强化 + 砧上有实物（非预览图标）
-                // 匹配 → 绿；不匹配或配方不要求 → 红
-                border = (slotRequired[i] && slotMatched[i])
-                        ? 0xFF44DD44 : 0xFFDD4444;
+                if (!slotRequired[i]) {
+                    // 配方不要求该槽 → 多余 → 橙黄
+                    border = 0xFFFFAA00;
+                } else if (slotMatched[i]) {
+                    // 配方要求且物品匹配 → 绿
+                    border = 0xFF44DD44;
+                } else {
+                    // 配方要求但物品不匹配 → 红
+                    border = 0xFFDD4444;
+                }
             }
             drawSlotBgWithBorder(ps, slotX[i], slotY[i], mouseX, mouseY, border);
         }
@@ -922,11 +925,9 @@ public class ModifierSearchTab implements AnvilTab {
             RenderSystem.defaultBlendFunc();
             RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
 
-            // 周围槽
             for (int i = 1; i < 6; i++) {
                 if (slotHasItem[i] && displayIcons[i] != null && !displayIcons[i].isEmpty()) {
                     if (slotPreview[i]) {
-                        // 预览图标半透明
                         RenderSystem.setShaderColor(1f, 1f, 1f, 0.55f);
                         drawItemIcon(ps, displayIcons[i], slotX[i], slotY[i]);
                         RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
@@ -934,12 +935,10 @@ public class ModifierSearchTab implements AnvilTab {
                         drawItemIcon(ps, displayIcons[i], slotX[i], slotY[i]);
                     }
                 } else if (!hasSelection) {
-                    // 未选强化 + 空格 → 显示"放置物品"占位
                     drawPlaceholderIcon(ps, slotX[i], slotY[i]);
                 }
             }
 
-            // 中心工具
             drawItemIcon(ps, centerItem, itemX, row2Y);
         } finally {
             RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
@@ -947,6 +946,40 @@ public class ModifierSearchTab implements AnvilTab {
             RenderSystem.depthMask(depthMaskWas);
             if (depthWas) RenderSystem.enableDepthTest();
             else          RenderSystem.disableDepthTest();
+        }
+
+        // ===== 悬停提示：错误 / 多余的槽位显示应该放什么 =====
+        if (hasSelection) {
+            for (int i = 1; i < 6; i++) {
+                if (!slotHasItem[i] || slotPreview[i]) continue;
+                boolean ok = slotRequired[i] && slotMatched[i];
+                if (ok) continue;
+
+                if (mouseX >= slotX[i] && mouseX <= slotX[i] + SLOT_SIZE
+                        && mouseY >= slotY[i] && mouseY <= slotY[i] + SLOT_SIZE) {
+                    List<Component> tip = new ArrayList<>();
+                    if (!slotRequired[i]) {
+                        tip.add(new TranslatableComponent(
+                                "gui.anvilssearch.modifier.slot.not_required"));
+                    } else {
+                        tip.add(new TranslatableComponent(
+                                "gui.anvilssearch.modifier.slot.expected"));
+                        if (selLi.slotMaterials != null
+                                && i - 1 < selLi.slotMaterials.length) {
+                            List<ItemStack> cands = selLi.slotMaterials[i - 1];
+                            if (cands != null) {
+                                for (ItemStack c : cands) {
+                                    if (c == null || c.isEmpty()) continue;
+                                    tip.add(new TextComponent("\u00A77- "
+                                            + c.getHoverName().getString()));
+                                }
+                            }
+                        }
+                    }
+                    panel.setPendingTooltip(tip);
+                    break;
+                }
+            }
         }
 
         // ===== 信息区 =====
@@ -1129,12 +1162,13 @@ public class ModifierSearchTab implements AnvilTab {
                 && mouseY >= y && mouseY <= y + SLOT_SIZE;
         AnvilTheme.slotBg(ps, x, y, SLOT_SIZE, hover);
         if (border != 0) {
-            GuiComponent.fill(ps, x - 1, y - 1, x + SLOT_SIZE + 1, y, border);
-            GuiComponent.fill(ps, x - 1, y + SLOT_SIZE, x + SLOT_SIZE + 1,
-                    y + SLOT_SIZE + 1, border);
-            GuiComponent.fill(ps, x - 1, y, x, y + SLOT_SIZE, border);
-            GuiComponent.fill(ps, x + SLOT_SIZE, y, x + SLOT_SIZE + 1,
-                    y + SLOT_SIZE, border);
+            int x2 = x + SLOT_SIZE;
+            int y2 = y + SLOT_SIZE;
+            // 边框画在槽位内部最外一圈，1px 粗
+            GuiComponent.fill(ps, x, y, x2, y + 1, border);        // 上
+            GuiComponent.fill(ps, x, y2 - 1, x2, y2, border);      // 下
+            GuiComponent.fill(ps, x, y, x + 1, y2, border);        // 左
+            GuiComponent.fill(ps, x2 - 1, y, x2, y2, border);      // 右
         }
     }
 
@@ -1221,15 +1255,18 @@ public class ModifierSearchTab implements AnvilTab {
         if (stack == null || stack.isEmpty()) return;
         try {
             Minecraft mc = Minecraft.getInstance();
-            mc.getItemRenderer().renderGuiItem(stack, x, y);
-            mc.getItemRenderer().renderGuiItemDecorations(mc.font, stack, x, y, "");
+            // 图标 16x16，槽位 18x18，偏移 1 像素让图标居中
+            int ox = x + (SLOT_SIZE - 16) / 2;
+            int oy = y + (SLOT_SIZE - 16) / 2;
+            mc.getItemRenderer().renderGuiItem(stack, ox, oy);
+            mc.getItemRenderer().renderGuiItemDecorations(mc.font, stack, ox, oy, "");
 
             if (stack.getCount() > 1) {
                 String s = String.valueOf(stack.getCount());
                 Font font = mc.font;
                 int tw = font.width(s);
-                int tx = x + SLOT_SIZE - tw - 1;
-                int ty = y + SLOT_SIZE - 9;
+                int tx = ox + 16 - tw - 1;
+                int ty = oy + 16 - 9;
                 font.drawShadow(ps, s, tx, ty, 0xFFFFFF);
             }
         } catch (Throwable ignored) {}

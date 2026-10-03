@@ -78,6 +78,9 @@
 
   "gui.anvilssearch.modifier.filter.incremental_tip": "只显示叠加配方",
   "gui.anvilssearch.modifier.filter.unlimited_tip": "只显示无上限配方",
-  "gui.anvilssearch.modifier.filter.req_met_tip": "只显示已达成前置的强化"
+  "gui.anvilssearch.modifier.filter.req_met_tip": "只显示已达成前置的强化",
+
+  "gui.anvilssearch.modifier.slot.not_required": "该槽位不需要材料",
+  "gui.anvilssearch.modifier.slot.expected": "需要放入："
 
 }
