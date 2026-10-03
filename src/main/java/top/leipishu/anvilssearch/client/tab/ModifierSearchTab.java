@@ -816,10 +816,6 @@ public class ModifierSearchTab implements AnvilTab {
                         : (hover ? AnvilTheme.TEXT_PRIMARY : e.color));
     }
 
-    // ============================================================
-    // ===== 右栏：矩阵 + 卡片 ====================================
-    // ============================================================
-
     @SuppressWarnings("unchecked")
     private void renderRight(PoseStack ps, Font font,
                              int x, int y, int w, int h,
@@ -834,33 +830,7 @@ public class ModifierSearchTab implements AnvilTab {
         int row2Y = row1Y + size + gap + 2;
         int row3Y = row2Y + size + gap + 2;
 
-        ItemStack[] matIcons = new ItemStack[5];
-        for (int i = 0; i < 5; i++) matIcons[i] = ItemStack.EMPTY;
-
-        ModifierIndex.LevelInfo selLi = getSelectedLevelInfo();
-
-        // 图标循环：每秒切换一次候选
-        long tick = 0;
-        if (Minecraft.getInstance().level != null) {
-            tick = Minecraft.getInstance().level.getGameTime();
-        }
-        int cycle = (int) (tick / CYCLE_TICKS);
-
-        if (selLi != null && selLi.slotMaterials != null) {
-            for (int i = 0; i < 5; i++) {
-                List<ItemStack> sl = selLi.slotMaterials[i];
-                if (sl == null || sl.isEmpty()) continue;
-                int idx = cycle % sl.size();
-                matIcons[i] = sl.get(idx);
-            }
-        } else if (selLi != null) {
-            for (int i = 0; i < Math.min(5, selLi.materials.size()); i++) {
-                matIcons[i] = selLi.materials.get(i);
-            }
-        }
-
-        ItemStack centerItem = AnvilSlotAccess.getCenterItem();
-
+        // 6 个位置的坐标：0=中心，1=左中，2=上中，3=右中，4=左下，5=右下
         int t1x = midX - size / 2;
         int t2x = midX - size / 2 - size - gap;
         int itemX = midX - size / 2;
@@ -870,13 +840,79 @@ public class ModifierSearchTab implements AnvilTab {
         int t4x = bottomStartX;
         int t5x = bottomStartX + size + gap;
 
-        drawSlotBg(ps, t1x, row1Y, mouseX, mouseY);
-        drawSlotBg(ps, t2x, row2Y, mouseX, mouseY);
-        drawSlotBg(ps, itemX, row2Y, mouseX, mouseY);
-        drawSlotBg(ps, t3x, row2Y, mouseX, mouseY);
-        drawSlotBg(ps, t4x, row3Y, mouseX, mouseY);
-        drawSlotBg(ps, t5x, row3Y, mouseX, mouseY);
+        int[] slotX = new int[6];
+        int[] slotY = new int[6];
+        slotX[0] = itemX; slotY[0] = row2Y;  // 中心
+        slotX[1] = t2x;   slotY[1] = row2Y;  // 左中
+        slotX[2] = t1x;   slotY[2] = row1Y;  // 上中
+        slotX[3] = t3x;   slotY[3] = row2Y;  // 右中
+        slotX[4] = t4x;   slotY[4] = row3Y;  // 左下
+        slotX[5] = t5x;   slotY[5] = row3Y;  // 右下
 
+        // ===== 读取砧上实际物品 =====
+        ItemStack[] anvilSlots = AnvilSlotAccess.getAllSlots();
+
+        ItemStack centerItem = (anvilSlots.length > 0) ? anvilSlots[0] : ItemStack.EMPTY;
+        if (centerItem.isEmpty()) centerItem = AnvilSlotAccess.getCenterItem();
+        if (centerItem == null) centerItem = ItemStack.EMPTY;
+
+        ModifierIndex.LevelInfo selLi = getSelectedLevelInfo();
+        boolean hasSelection = (selected != null && selLi != null);
+
+        // 图标循环（每秒切换）
+        long tick = 0;
+        if (Minecraft.getInstance().level != null) {
+            tick = Minecraft.getInstance().level.getGameTime();
+        }
+        int cycle = (int) (tick / CYCLE_TICKS);
+
+        // ===== 每个周围格子的状态 =====
+        ItemStack[] displayIcons = new ItemStack[6];  // 该格显示什么图标
+        boolean[] slotHasItem = new boolean[6];       // 是否有实物或预览
+        boolean[] slotMatched = new boolean[6];       // 实物是否匹配配方
+        boolean[] slotRequired = new boolean[6];      // 配方是否要求该槽位有材料
+        boolean[] slotPreview = new boolean[6];       // 是否是预览（配方候选而非实物）
+
+        for (int i = 1; i < 6; i++) {
+            ItemStack it = (i < anvilSlots.length) ? anvilSlots[i] : ItemStack.EMPTY;
+            if (it != null && !it.isEmpty()) {
+                // 砧上有实物
+                displayIcons[i] = it;
+                slotHasItem[i] = true;
+                slotRequired[i] = isSlotRequired(selLi, i);
+                slotMatched[i] = hasSelection && slotRequired[i]
+                        && itemMatchesEntry(it, selLi);
+            } else if (hasSelection) {
+                // 砧上没放 → 显示配方候选（循环，作预览）
+                List<ItemStack> candidates = null;
+                if (selLi.slotMaterials != null && i - 1 < selLi.slotMaterials.length) {
+                    candidates = selLi.slotMaterials[i - 1];
+                }
+                if (candidates != null && !candidates.isEmpty()) {
+                    displayIcons[i] = candidates.get(cycle % candidates.size());
+                    slotHasItem[i] = true;
+                    slotPreview[i] = true;
+                    slotRequired[i] = true;
+                }
+            }
+            // 其余情况：留空
+        }
+
+        // ===== 画槽底 + 彩色边框 =====
+        for (int i = 1; i < 6; i++) {
+            int border = 0;
+            if (hasSelection && slotHasItem[i] && !slotPreview[i]) {
+                // 已选强化 + 砧上有实物（非预览图标）
+                // 匹配 → 绿；不匹配或配方不要求 → 红
+                border = (slotRequired[i] && slotMatched[i])
+                        ? 0xFF44DD44 : 0xFFDD4444;
+            }
+            drawSlotBgWithBorder(ps, slotX[i], slotY[i], mouseX, mouseY, border);
+        }
+        // 中心槽（工具）
+        drawSlotBg(ps, itemX, row2Y, mouseX, mouseY);
+
+        // ===== 画物品图标 =====
         boolean depthWas     = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
         boolean depthMaskWas = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
         try {
@@ -886,12 +922,25 @@ public class ModifierSearchTab implements AnvilTab {
             RenderSystem.defaultBlendFunc();
             RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
 
-            drawItemIcon(ps, matIcons[1], t1x, row1Y);
-            drawItemIcon(ps, matIcons[0], t2x, row2Y);
+            // 周围槽
+            for (int i = 1; i < 6; i++) {
+                if (slotHasItem[i] && displayIcons[i] != null && !displayIcons[i].isEmpty()) {
+                    if (slotPreview[i]) {
+                        // 预览图标半透明
+                        RenderSystem.setShaderColor(1f, 1f, 1f, 0.55f);
+                        drawItemIcon(ps, displayIcons[i], slotX[i], slotY[i]);
+                        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                    } else {
+                        drawItemIcon(ps, displayIcons[i], slotX[i], slotY[i]);
+                    }
+                } else if (!hasSelection) {
+                    // 未选强化 + 空格 → 显示"放置物品"占位
+                    drawPlaceholderIcon(ps, slotX[i], slotY[i]);
+                }
+            }
+
+            // 中心工具
             drawItemIcon(ps, centerItem, itemX, row2Y);
-            drawItemIcon(ps, matIcons[2], t3x, row2Y);
-            drawItemIcon(ps, matIcons[3], t4x, row3Y);
-            drawItemIcon(ps, matIcons[4], t5x, row3Y);
         } finally {
             RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
             RenderSystem.defaultBlendFunc();
@@ -900,6 +949,7 @@ public class ModifierSearchTab implements AnvilTab {
             else          RenderSystem.disableDepthTest();
         }
 
+        // ===== 信息区 =====
         int infoTop = row3Y + size + 10;
         int infoH = (y + h) - infoTop - AnvilTheme.PAD_S;
 
@@ -930,8 +980,7 @@ public class ModifierSearchTab implements AnvilTab {
 
         int afterTitleY = titleY + LINE_H + 6;
 
-        ItemStack currentAnvilItem = AnvilSlotAccess.getCenterItem();
-        if (currentAnvilItem == null) currentAnvilItem = ItemStack.EMPTY;
+        ItemStack currentAnvilItem = centerItem;
 
         boolean needRecheck = (selected != lastReqEntry)
                 || (selectedIndex != lastReqIndex)
@@ -973,7 +1022,6 @@ public class ModifierSearchTab implements AnvilTab {
         List<Component> c2 = new ArrayList<>();
         c2.add(buildSlotLine(selLi));
 
-        // 黄色提示也走 wrap，避免被卡片区域切割
         if (selLi.kind == ModifierIndex.RecipeKind.INCREMENTAL
                 && selLi.amountPerInput > 0 && selLi.neededPerLevel > 0) {
             Component hint = new TextComponent("\u00A7e"
@@ -996,7 +1044,6 @@ public class ModifierSearchTab implements AnvilTab {
             c2.addAll(ModifierMaterialText.wrapComponent(font, varLine, maxTextW));
         }
 
-        // 材料文本合并
         List<Component> materialLines = ModifierMaterialText.buildMaterialLines(selLi);
 
         if (!materialLines.isEmpty()) {
@@ -1047,6 +1094,59 @@ public class ModifierSearchTab implements AnvilTab {
                 RenderSystem.enableDepthTest();
             }
         }
+    }
+
+    /** 配方是否要求砧上位置 anvilIndex (1..5) 有材料。 */
+    private static boolean isSlotRequired(ModifierIndex.LevelInfo li, int anvilIndex) {
+        if (li == null || li.slotMaterials == null) return false;
+        int idx = anvilIndex - 1;
+        if (idx < 0 || idx >= li.slotMaterials.length) return false;
+        List<ItemStack> candidates = li.slotMaterials[idx];
+        return candidates != null && !candidates.isEmpty();
+    }
+
+
+    /** 判断某物品是否匹配配方中任一槽位的候选列表。 */
+    private static boolean itemMatchesEntry(ItemStack item, ModifierIndex.LevelInfo li) {
+        if (item == null || item.isEmpty()) return false;
+        if (li == null || li.slotMaterials == null) return false;
+
+        String itemKey = ModifierMaterialText.stackKeyOf(item);
+        for (List<ItemStack> candidates : li.slotMaterials) {
+            if (candidates == null || candidates.isEmpty()) continue;
+            for (ItemStack cand : candidates) {
+                if (cand == null || cand.isEmpty()) continue;
+                if (ModifierMaterialText.stackKeyOf(cand).equals(itemKey)) return true;
+            }
+        }
+        return false;
+    }
+
+    /** 画槽底并可选加彩色边框。border == 0 时不画边框。 */
+    private void drawSlotBgWithBorder(PoseStack ps, int x, int y,
+                                      int mouseX, int mouseY, int border) {
+        boolean hover = mouseX >= x && mouseX <= x + SLOT_SIZE
+                && mouseY >= y && mouseY <= y + SLOT_SIZE;
+        AnvilTheme.slotBg(ps, x, y, SLOT_SIZE, hover);
+        if (border != 0) {
+            GuiComponent.fill(ps, x - 1, y - 1, x + SLOT_SIZE + 1, y, border);
+            GuiComponent.fill(ps, x - 1, y + SLOT_SIZE, x + SLOT_SIZE + 1,
+                    y + SLOT_SIZE + 1, border);
+            GuiComponent.fill(ps, x - 1, y, x, y + SLOT_SIZE, border);
+            GuiComponent.fill(ps, x + SLOT_SIZE, y, x + SLOT_SIZE + 1,
+                    y + SLOT_SIZE, border);
+        }
+    }
+
+    /** 未选强化时，"放置物品"提示。用半透明白色小方块表示。 */
+    private void drawPlaceholderIcon(PoseStack ps, int x, int y) {
+        RenderSystem.disableDepthTest();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        // 半透明白色小方块
+        GuiComponent.fill(ps, x + 5, y + 5, x + SLOT_SIZE - 5, y + SLOT_SIZE - 5,
+                0x40FFFFFF);
+        RenderSystem.enableDepthTest();
     }
 
     private static Component buildSlotLine(ModifierIndex.LevelInfo li) {
