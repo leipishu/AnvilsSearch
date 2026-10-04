@@ -51,7 +51,6 @@ public class ToolSimulatorTab implements AnvilTab {
 
     private static final int COL_HEADER_H = 18;
 
-    // ===== 顶部工具栏 =====
     private static final int TOOLBAR_H       = 16;
     private static final int TOOLBAR_GAP     = 4;
     private static final int TOOLBAR_BTN_W   = 52;
@@ -77,7 +76,6 @@ public class ToolSimulatorTab implements AnvilTab {
     private int lastAreaTop, lastAreaH;
     private int lastMidX, lastMidW;
 
-    // ===== 工具栏状态 =====
     private int toolbarTopY;
     private int toolbarSaveX, toolbarExportX, toolbarImportX;
     private String feedbackText = null;
@@ -229,19 +227,31 @@ public class ToolSimulatorTab implements AnvilTab {
         toolbarExportX = x + TOOLBAR_BTN_W + TOOLBAR_BTN_GAP;
         toolbarImportX = x + (TOOLBAR_BTN_W + TOOLBAR_BTN_GAP) * 2;
 
+        // ★ 判断是否可保存/导出
+        boolean canSave = model.getSelectedTool() != null && model.isComplete();
+
         boolean h1 = inRect(mouseX, mouseY, toolbarSaveX,   y, TOOLBAR_BTN_W, TOOLBAR_H);
         boolean h2 = inRect(mouseX, mouseY, toolbarExportX, y, TOOLBAR_BTN_W, TOOLBAR_H);
         boolean h3 = inRect(mouseX, mouseY, toolbarImportX, y, TOOLBAR_BTN_W, TOOLBAR_H);
 
+        // 保存按钮：不可用时禁用（灰显），hover 仍显示提示
         AnvilTheme.button(ps, font, toolbarSaveX, y, TOOLBAR_BTN_W, TOOLBAR_H,
                 new TranslatableComponent("gui.anvilssearch.sim.save").getString(),
-                h1, false);
-        if (h1) tooltip("gui.anvilssearch.sim.save.tip");
+                canSave && h1, false);
+        if (h1) {
+            tooltip(canSave
+                    ? "gui.anvilssearch.sim.save.tip"
+                    : "gui.anvilssearch.sim.export.incomplete");
+        }
 
         AnvilTheme.button(ps, font, toolbarExportX, y, TOOLBAR_BTN_W, TOOLBAR_H,
                 new TranslatableComponent("gui.anvilssearch.sim.export").getString(),
-                h2, false);
-        if (h2) tooltip("gui.anvilssearch.sim.export.tip");
+                canSave && h2, false);
+        if (h2) {
+            tooltip(canSave
+                    ? "gui.anvilssearch.sim.export.tip"
+                    : "gui.anvilssearch.sim.export.incomplete");
+        }
 
         AnvilTheme.button(ps, font, toolbarImportX, y, TOOLBAR_BTN_W, TOOLBAR_H,
                 new TranslatableComponent("gui.anvilssearch.sim.import").getString(),
@@ -274,9 +284,14 @@ public class ToolSimulatorTab implements AnvilTab {
     // ===== 保存 / 导出 / 导入 ===================================
     // ============================================================
 
+    /**
+     * 构建当前预设。
+     * ★ 若工具未选或部件未填满，返回 null。
+     */
     private ToolPreset buildCurrentPreset() {
         ToolDefinition def = model.getSelectedTool();
         if (def == null || def.getId() == null) return null;
+        if (!model.isComplete()) return null;   // 部件不全
 
         Map<Integer, MaterialId> mats = new LinkedHashMap<>();
         for (int i = 0; i < model.getSlotCount(); i++) {
@@ -286,11 +301,21 @@ public class ToolSimulatorTab implements AnvilTab {
         return new ToolPreset(def.getId().toString(), mats, System.currentTimeMillis());
     }
 
-    /** 保存到 config/anvilssearch-presets/ */
+    /** 判断当前是否可以保存/导出。 */
+    private boolean canExportOrSave() {
+        return model.getSelectedTool() != null && model.isComplete();
+    }
+
     private void doSave() {
+        if (!canExportOrSave()) {
+            setFeedback(new TranslatableComponent(
+                    "gui.anvilssearch.sim.export.incomplete"));
+            return;
+        }
         ToolPreset preset = buildCurrentPreset();
         if (preset == null) {
-            setFeedback(new TranslatableComponent("gui.anvilssearch.sim.import.empty"));
+            setFeedback(new TranslatableComponent(
+                    "gui.anvilssearch.sim.export.incomplete"));
             return;
         }
         Path p = ToolPresetStore.save(preset);
@@ -299,11 +324,16 @@ public class ToolSimulatorTab implements AnvilTab {
                 : "gui.anvilssearch.sim.save.fail"));
     }
 
-    /** 通过系统原生对话框导出 */
     private void doExportFile() {
+        if (!canExportOrSave()) {
+            setFeedback(new TranslatableComponent(
+                    "gui.anvilssearch.sim.export.incomplete"));
+            return;
+        }
         ToolPreset preset = buildCurrentPreset();
         if (preset == null) {
-            setFeedback(new TranslatableComponent("gui.anvilssearch.sim.import.empty"));
+            setFeedback(new TranslatableComponent(
+                    "gui.anvilssearch.sim.export.incomplete"));
             return;
         }
 
@@ -319,7 +349,6 @@ public class ToolSimulatorTab implements AnvilTab {
         });
     }
 
-    /** 打开方案浏览器 */
     private void openPresetBrowser() {
         List<ToolPreset> list = ToolPresetStore.listAll();
         presetPopup = new ToolPresetBrowserPopup(
@@ -335,7 +364,6 @@ public class ToolSimulatorTab implements AnvilTab {
                 panel.getPanelY() + 50, popW, popH);
     }
 
-    /** 从剪贴板导入 */
     private void doImportClipboard() {
         String json = null;
         try { json = Minecraft.getInstance().keyboardHandler.getClipboard(); }
@@ -349,7 +377,6 @@ public class ToolSimulatorTab implements AnvilTab {
         applyPreset(p);
     }
 
-    /** 从文件导入（系统原生对话框） */
     private void doImportFile() {
         SystemFileDialogs.open(path -> {
             try {
@@ -367,7 +394,6 @@ public class ToolSimulatorTab implements AnvilTab {
         });
     }
 
-    /** 应用 ToolPreset 到模型 */
     private void applyPreset(ToolPreset preset) {
         if (preset == null || preset.toolId == null) return;
 

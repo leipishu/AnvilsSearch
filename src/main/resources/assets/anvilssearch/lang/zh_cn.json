@@ -104,6 +104,9 @@
   "gui.anvilssearch.sim.browser.from_clipboard": "剪贴板",
   "gui.anvilssearch.sim.browser.from_file": "打开文件",
   "gui.anvilssearch.sim.browser.empty": "暂无已保存方案",
-  "gui.anvilssearch.sim.browser.parts_suffix": "部件"
+  "gui.anvilssearch.sim.browser.parts_suffix": "部件",
+  "gui.anvilssearch.sim.export.incomplete": "请先填满所有部件槽位",
+  "gui.anvilssearch.sim.browser.delete": "删除",
+  "gui.anvilssearch.sim.browser.delete.tip": "删除此方案"
 
 }

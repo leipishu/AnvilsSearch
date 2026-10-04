@@ -103,5 +103,8 @@
   "gui.anvilssearch.sim.browser.from_clipboard": "Clipboard",
   "gui.anvilssearch.sim.browser.from_file": "Open File",
   "gui.anvilssearch.sim.browser.empty": "No saved presets",
-  "gui.anvilssearch.sim.browser.parts_suffix": "parts"
+  "gui.anvilssearch.sim.browser.parts_suffix": "parts",
+  "gui.anvilssearch.sim.export.incomplete": "Fill all part slots first",
+  "gui.anvilssearch.sim.browser.delete": "Delete",
+  "gui.anvilssearch.sim.browser.delete.tip": "Delete this preset"
 }
