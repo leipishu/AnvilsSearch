@@ -10,14 +10,17 @@ import net.minecraft.world.item.ItemStack;
 import top.leipishu.anvilssearch.client.theme.AnvilTheme;
 import top.leipishu.anvilssearch.data.tool.ToolDefinitionIndex;
 import top.leipishu.anvilssearch.simulation.ToolPreset;
+import top.leipishu.anvilssearch.simulation.ToolStatsCalculator;
 import top.leipishu.tinkerssearch.client.gui.components.CardBackground;
 import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.SCROLL_BAR_PADDING;
 import static top.leipishu.tinkerssearch.config.PanelConfig.SCROLL_BAR_WIDTH;
@@ -49,6 +52,9 @@ public class ToolPresetBrowserPopup {
 
     private int clipboardBtnX, fileBtnX, btnY;
 
+    /** 缓存的预览栈（key = toolId + "@" + savedAt）。 */
+    private final Map<String, ItemStack> iconCache = new HashMap<>();
+
     public ToolPresetBrowserPopup(List<ToolPreset> presets,
                                   OnPickPreset onPick,
                                   OnClipboardImport onClipboard,
@@ -70,6 +76,10 @@ public class ToolPresetBrowserPopup {
     public boolean isPointInside(double mx, double my) {
         return mx >= x && mx <= x + w && my >= y && my <= y + h;
     }
+
+    // ============================================================
+    // ===== 渲染 =================================================
+    // ============================================================
 
     public void render(PoseStack ps, Font font, int mouseX, int mouseY) {
         GuiComponent.fill(ps, x, y, x + w, y + h, 0xF01A1A1A);
@@ -151,10 +161,14 @@ public class ToolPresetBrowserPopup {
 
         ToolDefinitionIndex.Entry def = findDef(p.toolId);
 
-        if (def != null && def.item != null) {
+        // ★ 用保存的材料渲染图标
+        ItemStack icon = buildPreviewStack(p, def);
+        if (icon != null && !icon.isEmpty()) {
             try {
-                Minecraft.getInstance().getItemRenderer()
-                        .renderGuiItem(new ItemStack(def.item), x + 6, y + 6);
+                Minecraft mc = Minecraft.getInstance();
+                mc.getItemRenderer().renderGuiItem(icon, x + 6, y + 6);
+                mc.getItemRenderer().renderGuiItemDecorations(
+                        mc.font, icon, x + 6, y + 6, "");
             } catch (Throwable ignored) {}
         }
 
@@ -175,6 +189,43 @@ public class ToolPresetBrowserPopup {
                 AnvilTheme.TEXT_DIM);
     }
 
+    /** 用保存的材料构建带材质的预览栈（带缓存）。 */
+    private ItemStack buildPreviewStack(ToolPreset preset,
+                                        ToolDefinitionIndex.Entry def) {
+        if (preset == null) return ItemStack.EMPTY;
+
+        String key = preset.toolId + "@" + preset.savedAt;
+        ItemStack cached = iconCache.get(key);
+        if (cached != null) return cached;
+
+        // 1) 尝试用真实材料构建
+        if (def != null && def.definition != null) {
+            try {
+                ToolStatsCalculator.Result r =
+                        ToolStatsCalculator.calculate(
+                                def.definition, preset.materials);
+                if (r != null && r.stack != null && !r.stack.isEmpty()) {
+                    iconCache.put(key, r.stack);
+                    return r.stack;
+                }
+            } catch (Throwable t) {
+                System.err.println("[Anvil's Search] preview build failed for "
+                        + preset.toolId + ": " + t);
+            }
+        }
+
+        // 2) 兜底：白板图标
+        if (def != null && def.item != null) {
+            try {
+                ItemStack blank = new ItemStack(def.item);
+                iconCache.put(key, blank);
+                return blank;
+            } catch (Throwable ignored) {}
+        }
+
+        return ItemStack.EMPTY;
+    }
+
     private static ToolDefinitionIndex.Entry findDef(String toolId) {
         if (toolId == null) return null;
         for (ToolDefinitionIndex.Entry e : ToolDefinitionIndex.get()) {
@@ -182,6 +233,10 @@ public class ToolPresetBrowserPopup {
         }
         return null;
     }
+
+    // ============================================================
+    // ===== 交互 =================================================
+    // ============================================================
 
     public boolean mouseClicked(double mx, double my, int button) {
         if (scrollBar.tryBeginDrag(mx, my)) return true;
