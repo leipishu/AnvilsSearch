@@ -17,18 +17,18 @@ import org.lwjgl.opengl.GL11;
 import top.leipishu.anvilssearch.client.AnvilPanelAnimation;
 import top.leipishu.anvilssearch.client.AnvilSidebarPanel;
 import top.leipishu.anvilssearch.client.AnvilTab;
+import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
 import top.leipishu.anvilssearch.client.theme.AnvilTheme;
 import top.leipishu.anvilssearch.data.AnvilSlotAccess;
 import top.leipishu.anvilssearch.data.FavoritesStore;
 import top.leipishu.anvilssearch.data.modifier.ModifierIndex;
 import top.leipishu.anvilssearch.data.modifier.ModifierMaterialText;
 import top.leipishu.anvilssearch.data.modifier.ModifierRequirementChecker;
+import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
-import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
-import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch.PinyinResult;
 
@@ -68,11 +68,12 @@ public class ModifierSearchTab implements AnvilTab {
     private static final int DROP_BTN_H    = 14;
     private static final int DROP_BTN_PAD  = 4;
 
-    /** 图标循环周期（tick）：每秒切换一次。 */
     private static final int CYCLE_TICKS = 20;
 
     private static final String SLOT_NONE = "__none__";
     private static final int CARD_ACCENT_ERROR = 0xFFFF5555;
+
+    private static final String SLOT_DROPDOWN_ANIM_KEY = "mod.slotdrop";
 
     private final AnvilSidebarPanel panel;
 
@@ -86,6 +87,7 @@ public class ModifierSearchTab implements AnvilTab {
     private boolean filterReqMet = false;
     private final Set<String> slotFilter = new LinkedHashSet<>();
     private boolean slotDropdownOpen = false;
+    private boolean slotDropdownClosing = false;
     private int slotDropdownX, slotDropdownY, slotDropdownW, slotDropdownH;
 
     private final Map<String, Boolean> reqMetCache = new HashMap<>();
@@ -151,7 +153,7 @@ public class ModifierSearchTab implements AnvilTab {
 
     @Override public void onExternalSearchFocus() {
         searchBox.setFocused(false);
-        slotDropdownOpen = false;
+        requestCloseSlotDropdown();
     }
 
     @Override
@@ -176,8 +178,6 @@ public class ModifierSearchTab implements AnvilTab {
     private void reloadIndex() {
         allEntries = new ArrayList<>(ModifierIndex.getGrouped());
         slotTypes = collectSlotTypes();
-        System.out.println("[Anvil's Search] ModifierSearchTab reload: "
-                + allEntries.size() + " entries, slot types=" + slotTypes);
         applyFilter("");
     }
 
@@ -404,6 +404,12 @@ public class ModifierSearchTab implements AnvilTab {
         return (color & 0x00FFFFFF) | 0x44000000;
     }
 
+    private void requestCloseSlotDropdown() {
+        if (!slotDropdownOpen || slotDropdownClosing) return;
+        slotDropdownClosing = true;
+        AnvilWidgetAnimations.startPopupAnimation(SLOT_DROPDOWN_ANIM_KEY, false);
+    }
+
     // ============================================================
     // ===== 渲染 =================================================
     // ============================================================
@@ -434,7 +440,7 @@ public class ModifierSearchTab implements AnvilTab {
         int cardsTop = areaTop + TOOLBAR_H + TOOLBAR_GAP;
         int cardsH = areaBottom - cardsTop;
         if (cardsH < 20) {
-            if (slotDropdownOpen) renderSlotDropdown(ps, font, mouseX, mouseY);
+            renderSlotDropdownIfOpen(ps, font, mouseX, mouseY);
             return;
         }
 
@@ -446,7 +452,39 @@ public class ModifierSearchTab implements AnvilTab {
         renderLeft(ps, font, leftX, cardsTop, leftW, cardsH, mouseX, mouseY);
         renderRight(ps, font, rightX, cardsTop, rightW, cardsH, mouseX, mouseY);
 
-        if (slotDropdownOpen) renderSlotDropdown(ps, font, mouseX, mouseY);
+        renderSlotDropdownIfOpen(ps, font, mouseX, mouseY);
+    }
+
+    private void renderSlotDropdownIfOpen(PoseStack ps, Font font,
+                                          int mouseX, int mouseY) {
+        if (!slotDropdownOpen) return;
+
+        // ★ 强制 flush 之前所有绘制（物品图标 / 数量数字）
+        try {
+            Minecraft.getInstance().renderBuffers().bufferSource().endBatch();
+        } catch (Throwable ignored) {}
+
+        boolean depthWas     = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
+        boolean depthMaskWas = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
+        RenderSystem.disableDepthTest();
+        RenderSystem.depthMask(false);
+        try {
+            renderSlotDropdown(ps, font, mouseX, mouseY);
+        } finally {
+            // ★ popup 结束后立即 flush，防止其内容泄漏到数字层
+            try {
+                Minecraft.getInstance().renderBuffers().bufferSource().endBatch();
+            } catch (Throwable ignored) {}
+            RenderSystem.depthMask(depthMaskWas);
+            if (depthWas) RenderSystem.enableDepthTest();
+            else          RenderSystem.disableDepthTest();
+        }
+
+        if (slotDropdownClosing
+                && AnvilWidgetAnimations.isPopupFadeComplete(SLOT_DROPDOWN_ANIM_KEY)) {
+            slotDropdownOpen = false;
+            slotDropdownClosing = false;
+        }
     }
 
     private void renderToolbar(PoseStack ps, Font font,
@@ -480,7 +518,6 @@ public class ModifierSearchTab implements AnvilTab {
         searchBox.setBounds(searchX, y, searchW, TOOLBAR_H);
         searchBox.render(ps, mouseX, mouseY, font);
 
-        // ★ 收藏
         boolean starHover = mouseX >= starX && mouseX <= starX + starW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
         float starHoverT = AnvilWidgetAnimations.buttonHover("mod.toolbar.star", starHover);
@@ -488,7 +525,6 @@ public class ModifierSearchTab implements AnvilTab {
         AnvilTheme.button(ps, font, starX, y, starW, TOOLBAR_H,
                 starLabel, starHoverT, favoritesOnly ? 1f : 0f);
 
-        // ★ 叠加
         boolean incHover = mouseX >= incX && mouseX <= incX + iconW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
         float incHoverT = AnvilWidgetAnimations.buttonHover("mod.toolbar.inc", incHover);
@@ -501,7 +537,6 @@ public class ModifierSearchTab implements AnvilTab {
             panel.setPendingTooltip(tip);
         }
 
-        // ★ 无上限
         boolean unlHover = mouseX >= unlX && mouseX <= unlX + iconW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
         float unlHoverT = AnvilWidgetAnimations.buttonHover("mod.toolbar.unl", unlHover);
@@ -514,7 +549,6 @@ public class ModifierSearchTab implements AnvilTab {
             panel.setPendingTooltip(tip);
         }
 
-        // ★ 前置达成
         boolean metHover = mouseX >= metX && mouseX <= metX + iconW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
         float metHoverT = AnvilWidgetAnimations.buttonHover("mod.toolbar.met", metHover);
@@ -527,7 +561,6 @@ public class ModifierSearchTab implements AnvilTab {
             panel.setPendingTooltip(tip);
         }
 
-        // ★ 槽位下拉触发器
         boolean slotHover = mouseX >= slotX && mouseX <= slotX + slotW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
         boolean slotActive = !slotFilter.isEmpty();
@@ -589,8 +622,13 @@ public class ModifierSearchTab implements AnvilTab {
         int totalH = 0;
         for (ModifierIndex.Entry e : filtered) {
             totalH += ROW_H;
-            if (isMultiLevelEntry(e) && expandedInList.contains(e.id)) {
-                totalH += e.levels.size() * SUB_ROW_H;
+            if (isMultiLevelEntry(e)) {
+                String expandKey = e.id != null ? e.id : String.valueOf(e.hashCode());
+                boolean expanded = expandedInList.contains(e.id);
+                float p = AnvilWidgetAnimations.expandProgress("mod.expand:" + expandKey, expanded);
+                if (p > 0.01f) {
+                    totalH += e.levels.size() * SUB_ROW_H;
+                }
             }
         }
         maxScrollOffset = Math.max(0, totalH - listH);
@@ -615,26 +653,22 @@ public class ModifierSearchTab implements AnvilTab {
                         mouseX, mouseY);
                 rowY += ROW_H;
 
-                if (expanded) {
-                    String expandKey = e.id != null ? e.id : String.valueOf(e.hashCode());
-                    float fadeT = AnvilWidgetAnimations.cardFade("mod.expand:" + expandKey, true);
+                // ★ 无条件驱动展开进度，展开/收起都有动画
+                String expandKey = e.id != null ? e.id : String.valueOf(e.hashCode());
+                float p = AnvilWidgetAnimations.expandProgress("mod.expand:" + expandKey, expanded);
 
-                    if (fadeT > 0.01f) {
-                        RenderSystem.setShaderColor(1f, 1f, 1f, fadeT);
-                        try {
-                            for (int i = 0; i < e.levels.size(); i++) {
-                                ModifierIndex.LevelInfo li = e.levels.get(i);
-                                drawSubRow(ps, font, innerX, rowY, clipW, e, li,
-                                        selected == e && selectedIndex == i,
-                                        mouseX, mouseY);
-                                rowY += SUB_ROW_H;
-                            }
-                        } finally {
-                            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                if (p > 0.01f) {
+                    RenderSystem.setShaderColor(1f, 1f, 1f, p);
+                    try {
+                        for (int i = 0; i < e.levels.size(); i++) {
+                            ModifierIndex.LevelInfo li = e.levels.get(i);
+                            drawSubRow(ps, font, innerX, rowY, clipW, e, li,
+                                    selected == e && selectedIndex == i,
+                                    mouseX, mouseY);
+                            rowY += SUB_ROW_H;
                         }
-                    } else {
-                        // 内容完全透明：仍需推进 rowY，保证滚动布局一致
-                        rowY += e.levels.size() * SUB_ROW_H;
+                    } finally {
+                        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
                     }
                 }
             }
@@ -657,6 +691,10 @@ public class ModifierSearchTab implements AnvilTab {
                                     int mouseX, int mouseY) {
         if (slotTypes.isEmpty()) return;
 
+        float alpha = AnvilWidgetAnimations.getPopupFade(SLOT_DROPDOWN_ANIM_KEY, 1f);
+        float scale = AnvilWidgetAnimations.getPopupScale(SLOT_DROPDOWN_ANIM_KEY, 1f);
+        if (alpha <= 0.01f) return;
+
         int w = 120;
         int h = DROP_HEADER_H + slotTypes.size() * DROP_ITEM_H + 6;
 
@@ -665,63 +703,76 @@ public class ModifierSearchTab implements AnvilTab {
         if (x < 0) x = 0;
         int y = toolbarY + TOOLBAR_H + 2;
 
-        AnvilTheme.cardBg(ps, x, y, w, h, 0);
+        float cx = x + w / 2f;
+        float cy = y + h / 2f;
+        ps.pushPose();
+        ps.translate(cx, cy, 0);
+        ps.scale(scale, scale, 1f);
+        ps.translate(-cx, -cy, 0);
 
-        int btnX = x + DROP_BTN_PAD;
-        int btnY = y + 4;
-        int btnW = w - DROP_BTN_PAD * 2;
-        int btnH = DROP_BTN_H;
+        RenderSystem.setShaderColor(1f, 1f, 1f, alpha);
+        try {
+            AnvilTheme.cardBg(ps, x, y, w, h, 0);
 
-        boolean allSelected = !slotTypes.isEmpty() && slotFilter.containsAll(slotTypes);
+            int btnX = x + DROP_BTN_PAD;
+            int btnY = y + 4;
+            int btnW = w - DROP_BTN_PAD * 2;
+            int btnH = DROP_BTN_H;
 
-        boolean btnHover = mouseX >= btnX && mouseX <= btnX + btnW
-                && mouseY >= btnY && mouseY <= btnY + btnH;
+            boolean allSelected = !slotTypes.isEmpty() && slotFilter.containsAll(slotTypes);
 
-        String btnLabel = allSelected
-                ? new TranslatableComponent(
-                "gui.anvilssearch.modifier.filter.clear").getString()
-                : new TranslatableComponent(
-                "gui.anvilssearch.modifier.filter.select_all").getString();
+            boolean btnHover = mouseX >= btnX && mouseX <= btnX + btnW
+                    && mouseY >= btnY && mouseY <= btnY + btnH;
 
-        float btnHoverT = AnvilWidgetAnimations.buttonHover("mod.dropdown.all", btnHover);
-        AnvilTheme.button(ps, font, btnX, btnY, btnW, btnH,
-                btnLabel, btnHoverT, allSelected ? 1f : 0f);
+            String btnLabel = allSelected
+                    ? new TranslatableComponent(
+                    "gui.anvilssearch.modifier.filter.clear").getString()
+                    : new TranslatableComponent(
+                    "gui.anvilssearch.modifier.filter.select_all").getString();
 
-        GuiComponent.fill(ps, x + 2, y + DROP_HEADER_H - 1,
-                x + w - 2, y + DROP_HEADER_H, AnvilTheme.SECTION_BORDER);
+            float btnHoverT = AnvilWidgetAnimations.buttonHover("mod.dropdown.all", btnHover);
+            AnvilTheme.button(ps, font, btnX, btnY, btnW, btnH,
+                    btnLabel, btnHoverT, allSelected ? 1f : 0f);
 
-        int cy = y + DROP_HEADER_H + 2;
-        for (String type : slotTypes) {
-            boolean hover = mouseX >= x + 1 && mouseX <= x + w - 1
-                    && mouseY >= cy && mouseY <= cy + DROP_ITEM_H;
+            GuiComponent.fill(ps, x + 2, y + DROP_HEADER_H - 1,
+                    x + w - 2, y + DROP_HEADER_H, AnvilTheme.SECTION_BORDER);
 
-            float itemHoverT = AnvilWidgetAnimations.rowHover("mod.dropdown:" + type, hover);
-            if (itemHoverT > 0.01f) {
-                GuiComponent.fill(ps, x + 1, cy, x + w - 1, cy + DROP_ITEM_H,
-                        ColorUtil.withAlphaFactor(AnvilTheme.ROW_HOVER, itemHoverT));
+            int cyRow = y + DROP_HEADER_H + 2;
+            for (String type : slotTypes) {
+                boolean hover = mouseX >= x + 1 && mouseX <= x + w - 1
+                        && mouseY >= cyRow && mouseY <= cyRow + DROP_ITEM_H;
+
+                float itemHoverT = AnvilWidgetAnimations.rowHover("mod.dropdown:" + type, hover);
+                if (itemHoverT > 0.01f) {
+                    int bgColor = ColorUtil.withAlphaFactor(0x22FFFFFF, itemHoverT);
+                    GuiComponent.fill(ps, x + 1, cyRow, x + w - 1, cyRow + DROP_ITEM_H, bgColor);
+                }
+                boolean checked = slotFilter.contains(type);
+                String box = checked ? "\u2611" : "\u2610";
+                int textY = AnvilTheme.centeredTextY(cyRow, DROP_ITEM_H, font);
+                font.draw(ps, box, x + 6, textY,
+                        checked ? AnvilTheme.ACCENT : AnvilTheme.TEXT_MUTED);
+
+                Component lbl;
+                if (SLOT_NONE.equals(type)) {
+                    lbl = new TranslatableComponent("gui.anvilssearch.slot.none");
+                } else {
+                    lbl = new TranslatableComponent("gui.anvilssearch.slot." + type);
+                }
+                font.draw(ps, lbl, x + 20, textY,
+                        checked ? AnvilTheme.TEXT_PRIMARY : AnvilTheme.TEXT_SECONDARY);
+
+                cyRow += DROP_ITEM_H;
             }
-            boolean checked = slotFilter.contains(type);
-            String box = checked ? "\u2611" : "\u2610";
-            int textY = AnvilTheme.centeredTextY(cy, DROP_ITEM_H, font);
-            font.draw(ps, box, x + 6, textY,
-                    checked ? AnvilTheme.ACCENT : AnvilTheme.TEXT_MUTED);
 
-            Component lbl;
-            if (SLOT_NONE.equals(type)) {
-                lbl = new TranslatableComponent("gui.anvilssearch.slot.none");
-            } else {
-                lbl = new TranslatableComponent("gui.anvilssearch.slot." + type);
-            }
-            font.draw(ps, lbl, x + 20, textY,
-                    checked ? AnvilTheme.TEXT_PRIMARY : AnvilTheme.TEXT_SECONDARY);
-
-            cy += DROP_ITEM_H;
+            slotDropdownX = x;
+            slotDropdownY = y;
+            slotDropdownW = w;
+            slotDropdownH = h;
+        } finally {
+            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+            ps.popPose();
         }
-
-        slotDropdownX = x;
-        slotDropdownY = y;
-        slotDropdownW = w;
-        slotDropdownH = h;
     }
 
     private void drawEntryRow(PoseStack ps, Font font,
@@ -735,9 +786,10 @@ public class ModifierSearchTab implements AnvilTab {
         float hoverT = AnvilWidgetAnimations.rowHover("mod:" + rowKey, hover);
         float selectedT = AnvilWidgetAnimations.rowSelected("mod:" + rowKey, sel);
 
-        int bg = ColorUtil.lerpARGB(0, AnvilTheme.ROW_HOVER, hoverT);
+        int bg = ColorUtil.withAlphaFactor(0x22FFFFFF, hoverT);
         if (selectedT > 0.01f) {
-            bg = ColorUtil.lerpARGB(bg, selectedRowBg(e.color), selectedT);
+            int selBg = selectedRowBg(e.color);
+            bg = ColorUtil.lerpARGB(bg, selBg, selectedT);
         }
         if ((bg >>> 24) != 0) {
             GuiComponent.fill(ps, x, y, x + clipW, y + ROW_H, bg);
@@ -753,7 +805,6 @@ public class ModifierSearchTab implements AnvilTab {
         int starColor = fav ? AnvilTheme.ACCENT
                 : (starHover ? AnvilTheme.TEXT_MUTED : AnvilTheme.TEXT_DIM);
 
-        // ★ 星标脉冲缩放
         String starKey = e.id != null ? e.id : String.valueOf(e.hashCode());
         float starScale = AnvilWidgetAnimations.starScale(starKey);
         boolean applyStarScale = Math.abs(starScale - 1f) > 0.005f;
@@ -848,7 +899,7 @@ public class ModifierSearchTab implements AnvilTab {
         float hoverT = AnvilWidgetAnimations.rowHover("mod.sub:" + subKey, hover);
         float selectedT = AnvilWidgetAnimations.rowSelected("mod.sub:" + subKey, sel);
 
-        int bg = ColorUtil.lerpARGB(0, AnvilTheme.ROW_HOVER, hoverT);
+        int bg = ColorUtil.withAlphaFactor(0x22FFFFFF, hoverT);
         if (selectedT > 0.01f) {
             bg = ColorUtil.lerpARGB(bg, selectedRowBg(e.color), selectedT);
         }
@@ -881,7 +932,6 @@ public class ModifierSearchTab implements AnvilTab {
         int row2Y = row1Y + size + gap + 2;
         int row3Y = row2Y + size + gap + 2;
 
-        // 6 个位置的坐标：0=中心，1=左中，2=上中，3=右中，4=左下，5=右下
         int t1x = midX - size / 2;
         int t2x = midX - size / 2 - size - gap;
         int itemX = midX - size / 2;
@@ -893,31 +943,27 @@ public class ModifierSearchTab implements AnvilTab {
 
         int[] slotX = new int[6];
         int[] slotY = new int[6];
-        slotX[0] = itemX; slotY[0] = row2Y;  // 中心
-        slotX[1] = t2x;   slotY[1] = row2Y;  // 左中
-        slotX[2] = t1x;   slotY[2] = row1Y;  // 上中
-        slotX[3] = t3x;   slotY[3] = row2Y;  // 右中
-        slotX[4] = t4x;   slotY[4] = row3Y;  // 左下
-        slotX[5] = t5x;   slotY[5] = row3Y;  // 右下
+        slotX[0] = itemX; slotY[0] = row2Y;
+        slotX[1] = t2x;   slotY[1] = row2Y;
+        slotX[2] = t1x;   slotY[2] = row1Y;
+        slotX[3] = t3x;   slotY[3] = row2Y;
+        slotX[4] = t4x;   slotY[4] = row3Y;
+        slotX[5] = t5x;   slotY[5] = row3Y;
 
-        // ===== 读取砧上实际物品 =====
         ItemStack[] anvilSlots = AnvilSlotAccess.getAllSlots();
 
-        // ★ 只信 getAllSlots 的返回值，避免 getCenterItem 读错槽位
         ItemStack centerItem = (anvilSlots.length > 0) ? anvilSlots[0] : ItemStack.EMPTY;
         if (centerItem == null) centerItem = ItemStack.EMPTY;
 
         ModifierIndex.LevelInfo selLi = getSelectedLevelInfo();
         boolean hasSelection = (selected != null && selLi != null);
 
-        // 图标循环（每秒切换）
         long tick = 0;
         if (Minecraft.getInstance().level != null) {
             tick = Minecraft.getInstance().level.getGameTime();
         }
         int cycle = (int) (tick / CYCLE_TICKS);
 
-        // ===== 每个周围格子的状态 =====
         ItemStack[] displayIcons = new ItemStack[6];
         boolean[] slotHasItem = new boolean[6];
         boolean[] slotMatched = new boolean[6];
@@ -946,27 +992,21 @@ public class ModifierSearchTab implements AnvilTab {
             }
         }
 
-        // ===== 画槽底 + 彩色边框 =====
         for (int i = 1; i < 6; i++) {
             int border = 0;
             if (hasSelection && slotHasItem[i] && !slotPreview[i]) {
                 if (!slotRequired[i]) {
-                    // 配方不要求该槽 → 多余 → 橙黄
                     border = 0xFFFFAA00;
                 } else if (slotMatched[i]) {
-                    // 配方要求且物品匹配 → 绿
                     border = 0xFF44DD44;
                 } else {
-                    // 配方要求但物品不匹配 → 红
                     border = 0xFFDD4444;
                 }
             }
             drawSlotBgWithBorder(ps, slotX[i], slotY[i], mouseX, mouseY, border);
         }
-        // 中心槽（工具）
         drawSlotBg(ps, itemX, row2Y, mouseX, mouseY);
 
-        // ===== 画物品图标 =====
         boolean depthWas     = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
         boolean depthMaskWas = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
         try {
@@ -999,7 +1039,6 @@ public class ModifierSearchTab implements AnvilTab {
             else          RenderSystem.disableDepthTest();
         }
 
-        // ===== 悬停提示：错误 / 多余的槽位显示应该放什么 =====
         if (hasSelection) {
             for (int i = 1; i < 6; i++) {
                 if (!slotHasItem[i] || slotPreview[i]) continue;
@@ -1033,7 +1072,6 @@ public class ModifierSearchTab implements AnvilTab {
             }
         }
 
-        // ===== 信息区 =====
         int infoTop = row3Y + size + 10;
         int infoH = (y + h) - infoTop - AnvilTheme.PAD_S;
 
@@ -1180,7 +1218,6 @@ public class ModifierSearchTab implements AnvilTab {
         }
     }
 
-    /** 配方是否要求砧上位置 anvilIndex (1..5) 有材料。 */
     private static boolean isSlotRequired(ModifierIndex.LevelInfo li, int anvilIndex) {
         if (li == null || li.slotMaterials == null) return false;
         int idx = anvilIndex - 1;
@@ -1189,8 +1226,6 @@ public class ModifierSearchTab implements AnvilTab {
         return candidates != null && !candidates.isEmpty();
     }
 
-
-    /** 判断某物品是否匹配配方中任一槽位的候选列表。 */
     private static boolean itemMatchesEntry(ItemStack item, ModifierIndex.LevelInfo li) {
         if (item == null || item.isEmpty()) return false;
         if (li == null || li.slotMaterials == null) return false;
@@ -1206,7 +1241,6 @@ public class ModifierSearchTab implements AnvilTab {
         return false;
     }
 
-    /** 画槽底并可选加彩色边框。border == 0 时不画边框。 */
     private void drawSlotBgWithBorder(PoseStack ps, int x, int y,
                                       int mouseX, int mouseY, int border) {
         boolean hover = mouseX >= x && mouseX <= x + SLOT_SIZE
@@ -1215,20 +1249,17 @@ public class ModifierSearchTab implements AnvilTab {
         if (border != 0) {
             int x2 = x + SLOT_SIZE;
             int y2 = y + SLOT_SIZE;
-            // 边框画在槽位内部最外一圈，1px 粗
-            GuiComponent.fill(ps, x, y, x2, y + 1, border);        // 上
-            GuiComponent.fill(ps, x, y2 - 1, x2, y2, border);      // 下
-            GuiComponent.fill(ps, x, y, x + 1, y2, border);        // 左
-            GuiComponent.fill(ps, x2 - 1, y, x2, y2, border);      // 右
+            GuiComponent.fill(ps, x, y, x2, y + 1, border);
+            GuiComponent.fill(ps, x, y2 - 1, x2, y2, border);
+            GuiComponent.fill(ps, x, y, x + 1, y2, border);
+            GuiComponent.fill(ps, x2 - 1, y, x2, y2, border);
         }
     }
 
-    /** 未选强化时，"放置物品"提示。用半透明白色小方块表示。 */
     private void drawPlaceholderIcon(PoseStack ps, int x, int y) {
         RenderSystem.disableDepthTest();
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
-        // 半透明白色小方块
         GuiComponent.fill(ps, x + 5, y + 5, x + SLOT_SIZE - 5, y + SLOT_SIZE - 5,
                 0x40FFFFFF);
         RenderSystem.enableDepthTest();
@@ -1306,7 +1337,6 @@ public class ModifierSearchTab implements AnvilTab {
         if (stack == null || stack.isEmpty()) return;
         try {
             Minecraft mc = Minecraft.getInstance();
-            // 图标 16x16，槽位 18x18，偏移 1 像素让图标居中
             int ox = x + (SLOT_SIZE - 16) / 2;
             int oy = y + (SLOT_SIZE - 16) / 2;
             mc.getItemRenderer().renderGuiItem(stack, ox, oy);
@@ -1318,7 +1348,8 @@ public class ModifierSearchTab implements AnvilTab {
                 int tw = font.width(s);
                 int tx = ox + 16 - tw - 1;
                 int ty = oy + 16 - 9;
-                font.drawShadow(ps, s, tx, ty, 0xFFFFFF);
+                // ★ 用 draw 而非 drawShadow，避免阴影层错位
+                font.draw(ps, s, tx, ty, 0xFFFFFF);
             }
         } catch (Throwable ignored) {}
     }
@@ -1368,7 +1399,7 @@ public class ModifierSearchTab implements AnvilTab {
                 }
                 return true;
             } else {
-                slotDropdownOpen = false;
+                requestCloseSlotDropdown();
             }
         }
 
@@ -1396,7 +1427,13 @@ public class ModifierSearchTab implements AnvilTab {
                 return true;
             }
             if (mx >= toolbarSlotX && mx <= toolbarSlotX + toolbarSlotW) {
-                slotDropdownOpen = !slotDropdownOpen;
+                if (slotDropdownOpen) {
+                    requestCloseSlotDropdown();
+                } else {
+                    slotDropdownOpen = true;
+                    slotDropdownClosing = false;
+                    AnvilWidgetAnimations.startPopupAnimation(SLOT_DROPDOWN_ANIM_KEY, true);
+                }
                 return true;
             }
         }
@@ -1419,7 +1456,6 @@ public class ModifierSearchTab implements AnvilTab {
                     int starX = leftListX + 3;
                     if (mx >= starX - 2 && mx <= starX + STAR_W + 2) {
                         FavoritesStore.toggle(e.id);
-                        // ★ 触发星标脉冲
                         AnvilWidgetAnimations.triggerStarPulse(
                                 e.id != null ? e.id : String.valueOf(e.hashCode()));
                         if (favoritesOnly) applyFilter(panel.getSearchKeyword());

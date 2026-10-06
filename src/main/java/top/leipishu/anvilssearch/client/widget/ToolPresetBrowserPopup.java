@@ -44,11 +44,9 @@ public class ToolPresetBrowserPopup {
     private static final int DELETE_BTN_SIZE = 14;
     private static final int DELETE_BTN_PAD  = 4;
 
-    /** 分割线到列表顶部的间距（越小列表越靠上）。 */
     private static final int LIST_TOP_GAP    = 4;
 
-    /** 动画 key 前缀。 */
-    private static final String ANIM_KEY     = "presets";
+    private static final String ANIM_KEY = "presets";
 
     private int x, y, w, h;
 
@@ -63,13 +61,9 @@ public class ToolPresetBrowserPopup {
 
     private int clipboardBtnX, fileBtnX, btnY;
 
-    /** 缓存的预览栈（key = toolId + "@" + savedAt）。 */
     private final Map<String, ItemStack> iconCache = new HashMap<>();
 
-    /** ★ 关闭状态：true = 正在淡出，动画完成后由调用方置 null。 */
     private boolean closing = false;
-
-    /** ★ 关闭动画完成回调。 */
     private Runnable onCloseFinished;
 
     public ToolPresetBrowserPopup(List<ToolPreset> presets,
@@ -86,8 +80,8 @@ public class ToolPresetBrowserPopup {
         scrollBar.setHoverExpandX(2);
         scrollBar.setAnimationId("anvil.presets.scroll");
 
-        // ★ 每次新建实例时重置 fade/scale，保证每次打开都有淡入
-        AnvilWidgetAnimations.resetPopupAnim(ANIM_KEY);
+        // ★ 新建实例时触发淡入
+        AnvilWidgetAnimations.startPopupAnimation(ANIM_KEY, true);
     }
 
     public void setBounds(int x, int y, int w, int h) {
@@ -106,6 +100,7 @@ public class ToolPresetBrowserPopup {
         if (closing) return;
         closing = true;
         this.onCloseFinished = onFinished;
+        AnvilWidgetAnimations.startPopupAnimation(ANIM_KEY, false);
     }
 
     public boolean isClosing() {
@@ -114,8 +109,7 @@ public class ToolPresetBrowserPopup {
 
     public void checkCloseFinished() {
         if (!closing) return;
-        float alpha = AnvilWidgetAnimations.popupFade(ANIM_KEY, false);
-        if (alpha <= 0.01f) {
+        if (AnvilWidgetAnimations.isPopupFadeComplete(ANIM_KEY)) {
             Runnable cb = onCloseFinished;
             onCloseFinished = null;
             if (cb != null) cb.run();
@@ -143,9 +137,8 @@ public class ToolPresetBrowserPopup {
     // ============================================================
 
     public void render(PoseStack ps, Font font, int mouseX, int mouseY) {
-        boolean visible = !closing;
-        float alpha = AnvilWidgetAnimations.popupFade(ANIM_KEY, visible);
-        float scale = AnvilWidgetAnimations.popupScale(ANIM_KEY, visible);
+        float alpha = AnvilWidgetAnimations.getPopupFade(ANIM_KEY, 1f);
+        float scale = AnvilWidgetAnimations.getPopupScale(ANIM_KEY, 1f);
 
         if (alpha <= 0.01f) return;
 

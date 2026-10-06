@@ -34,7 +34,6 @@ public class MaterialPickerPopup {
     private static final int SEARCH_H = 16;
     private static final int HEADER_H = SEARCH_H + 4;
 
-    /** 动画 key 前缀。 */
     private static final String ANIM_KEY = "picker";
 
     private int x, y, w, h;
@@ -49,10 +48,7 @@ public class MaterialPickerPopup {
     private int maxScrollOffset = 0;
     private final ScrollBar scrollBar = new ScrollBar();
 
-    /** ★ 关闭状态：true = 正在淡出，动画完成后调用方置 null。 */
     private boolean closing = false;
-
-    /** ★ 关闭动画完成回调。 */
     private Runnable onCloseFinished;
 
     public MaterialPickerPopup(List<PartMaterialIndex.Entry> entries, OnPick callback) {
@@ -70,8 +66,8 @@ public class MaterialPickerPopup {
         this.searchBox.setOnTextChanged(this::applyFilter);
         this.searchBox.setAnimationId("anvil.picker.search");
 
-        // ★ 每次新建实例时重置 fade/scale，保证每次打开都有淡入
-        AnvilWidgetAnimations.resetPopupAnim(ANIM_KEY);
+        // ★ 新建实例时触发淡入
+        AnvilWidgetAnimations.startPopupAnimation(ANIM_KEY, true);
     }
 
     public void setBounds(int x, int y, int w, int h) {
@@ -95,27 +91,20 @@ public class MaterialPickerPopup {
     // ===== 关闭动画 ==============================================
     // ============================================================
 
-    /**
-     * 请求关闭：启动淡出动画，动画完成后触发 {@code onFinished}。
-     */
     public void startClose(Runnable onFinished) {
         if (closing) return;
         closing = true;
         this.onCloseFinished = onFinished;
+        AnvilWidgetAnimations.startPopupAnimation(ANIM_KEY, false);
     }
 
-    /** 是否正在关闭。 */
     public boolean isClosing() {
         return closing;
     }
 
-    /**
-     * 每帧检查关闭动画是否完成；完成则触发回调。
-     */
     public void checkCloseFinished() {
         if (!closing) return;
-        float alpha = AnvilWidgetAnimations.popupFade(ANIM_KEY, false);
-        if (alpha <= 0.01f) {
+        if (AnvilWidgetAnimations.isPopupFadeComplete(ANIM_KEY)) {
             Runnable cb = onCloseFinished;
             onCloseFinished = null;
             if (cb != null) cb.run();
@@ -156,13 +145,11 @@ public class MaterialPickerPopup {
     // ============================================================
 
     public void render(PoseStack ps, Font font, int mouseX, int mouseY) {
-        boolean visible = !closing;
-        float alpha = AnvilWidgetAnimations.popupFade(ANIM_KEY, visible);
-        float scale = AnvilWidgetAnimations.popupScale(ANIM_KEY, visible);
+        float alpha = AnvilWidgetAnimations.getPopupFade(ANIM_KEY, 1f);
+        float scale = AnvilWidgetAnimations.getPopupScale(ANIM_KEY, 1f);
 
         if (alpha <= 0.01f) return;
 
-        // 以弹窗中心为原点缩放
         float cx = x + w / 2f;
         float cy = y + h / 2f;
         ps.pushPose();

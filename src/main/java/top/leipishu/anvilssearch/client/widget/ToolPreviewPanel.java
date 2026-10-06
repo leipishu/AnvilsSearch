@@ -156,7 +156,6 @@ public class ToolPreviewPanel {
             // ===== 工具级词条 =====
             List<ModifierEntry> toolTraits = model.getToolTraits();
             if (toolTraits != null && !toolTraits.isEmpty()) {
-                // ★ 分隔线 1 只在有词条时画
                 cy += 3;
                 GuiComponent.fill(ps, cx, cy, cx + clipW - 4, cy + 1, 0xFF444444);
                 cy += 4;
@@ -216,7 +215,6 @@ public class ToolPreviewPanel {
             // ===== 部件卡片列表 =====
             boolean hasCards = cardDetails != null && !cardDetails.isEmpty();
             if (hasCards) {
-                // ★ 分隔线 2 只在有卡片时画
                 cy += 2;
                 GuiComponent.fill(ps, cx, cy, cx + clipW - 4, cy + 1, 0xFF444444);
                 cy += 4;
@@ -231,12 +229,13 @@ public class ToolPreviewPanel {
                     headerHits.add(new HeaderHit(cx, cy, clipW - 4,
                             MaterialDetail.HEADER_H, i));
 
-                    // ★ 展开淡入
-                    float fadeT = AnvilWidgetAnimations.cardFade(
+                    // ★ 展开进度
+                    float p = AnvilWidgetAnimations.expandProgress(
                             "preview.card:" + i, expanded);
 
-                    if (fadeT > 0.01f) {
-                        RenderSystem.setShaderColor(1f, 1f, 1f, fadeT);
+                    if (expanded && p < 0.99f) {
+                        // 展开动画进行中：只淡入，不做垂直位移
+                        RenderSystem.setShaderColor(1f, 1f, 1f, p);
                         try {
                             List<Component> tip = d.render(ps, font, cx, cy,
                                     clipW - 4, mouseX, mouseY, expanded, true);
@@ -245,9 +244,12 @@ public class ToolPreviewPanel {
                             RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
                         }
                     } else {
-                        cy += cardH + 4;
-                        continue;
+                        // 折叠态或动画完成：正常渲染（头部永远可见）
+                        List<Component> tip = d.render(ps, font, cx, cy,
+                                clipW - 4, mouseX, mouseY, expanded, true);
+                        if (tip != null) pendingTooltip = tip;
                     }
+
                     cy += cardH + 4;
                 }
             } else {
@@ -290,15 +292,15 @@ public class ToolPreviewPanel {
 
         List<ModifierEntry> toolTraits = model.getToolTraits();
         if (toolTraits != null && !toolTraits.isEmpty()) {
-            totalH += 3 + 1 + 4;                 // 分隔线 1 + 边距
-            totalH += LINE_H;                    // "Tool Traits" 标题
+            totalH += 3 + 1 + 4;
+            totalH += LINE_H;
             totalH += measureToolTraitsHeight(font, toolTraits, effectiveW - 8);
             totalH += 2;
         }
 
         boolean hasCards = cardDetails != null && !cardDetails.isEmpty();
         if (hasCards) {
-            totalH += 2 + 1 + 4;                 // 分隔线 2 + 边距
+            totalH += 2 + 1 + 4;
             for (int i = 0; i < model.getSlotCount(); i++) {
                 MaterialDetail d = cardDetails.get(i);
                 if (d == null) continue;
@@ -383,7 +385,6 @@ public class ToolPreviewPanel {
     }
 
     private static Component statDisplayName(IToolStat<?> stat) {
-        // 1) getDisplayName
         try {
             Method m = stat.getClass().getMethod("getDisplayName");
             Object v = m.invoke(stat);
@@ -392,7 +393,6 @@ public class ToolPreviewPanel {
             }
         } catch (Throwable ignored) {}
 
-        // 2) getTranslationKey / getLocalizationKey
         for (String mn : new String[]{"getTranslationKey", "getLocalizationKey", "getLocalizedKey"}) {
             try {
                 Method m = stat.getClass().getMethod(mn);
@@ -404,7 +404,6 @@ public class ToolPreviewPanel {
             } catch (Throwable ignored) {}
         }
 
-        // 3) 从 getName() 拿 ns:path
         String ns = null, path = null;
         try {
             Method m = stat.getClass().getMethod("getName");
@@ -423,7 +422,6 @@ public class ToolPreviewPanel {
             }
         } catch (Throwable ignored) {}
 
-        // 4) 用 ns:path 尝试翻译
         if (ns != null && path != null) {
             for (String k : new String[]{
                     "stat." + ns + "." + path,
@@ -435,7 +433,6 @@ public class ToolPreviewPanel {
             return new TextComponent("\u00A77" + prettifyPath(path));
         }
 
-        // 5) 最终兜底：从 stat.toString() 里正则提取 namespace:path
         String s = String.valueOf(stat);
         java.util.regex.Matcher matcher = java.util.regex.Pattern
                 .compile("([a-z0-9_]+):([a-z0-9_/]+)")

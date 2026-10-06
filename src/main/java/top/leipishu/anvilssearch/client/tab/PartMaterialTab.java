@@ -13,6 +13,7 @@ import slimeknights.tconstruct.library.materials.definition.MaterialId;
 import slimeknights.tconstruct.library.materials.stats.MaterialStatsId;
 import top.leipishu.anvilssearch.client.AnvilSidebarPanel;
 import top.leipishu.anvilssearch.client.AnvilTab;
+import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
 import top.leipishu.anvilssearch.client.theme.AnvilTheme;
 import top.leipishu.anvilssearch.data.material.MaterialDetail;
 import top.leipishu.anvilssearch.data.material.MaterialDetailBuilder;
@@ -21,7 +22,6 @@ import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
-import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch.PinyinResult;
 
@@ -148,10 +148,6 @@ public class PartMaterialTab implements AnvilTab {
         });
     }
 
-    // ============================================================
-    // ===== 数据 =================================================
-    // ============================================================
-
     private void rebuildRows() {
         dataDirty = false;
         String kw = lastKeyword.trim().toLowerCase(Locale.ROOT);
@@ -232,11 +228,9 @@ public class PartMaterialTab implements AnvilTab {
         int areaTop      = py + contentTop;
         int areaH        = (py + contentBottom) - areaTop;
 
-        // ★ 统一 section 背景
         AnvilTheme.section(ps, contentLeft, areaTop,
                 contentRight - contentLeft, areaH);
 
-        // section 内 padding
         int innerLeft   = contentLeft + AnvilTheme.PAD_S;
         int innerTop    = areaTop + AnvilTheme.PAD_S;
         int innerRight  = contentRight - AnvilTheme.PAD_S
@@ -275,76 +269,74 @@ public class PartMaterialTab implements AnvilTab {
                 drawPartRow(ps, font, innerLeft, y, innerW, r, hover, isExpanded);
                 y += AnvilTheme.ROW_H;
 
-                if (isExpanded) {
-                    String partKey = r.partId.toString();
-                    float fadeT = AnvilWidgetAnimations.cardFade("part.expand:" + partKey, true);
+                // ★ 无条件驱动展开进度，无论展开还是收起
+                String key = "part.expand:" + r.partId;
+                float p = AnvilWidgetAnimations.expandProgress(key, isExpanded);
 
-                    // 内容完全透明时也推进 y，保持滚动一致
-                    if (fadeT <= 0.01f) {
-                        y += PART_SEARCH_H + PART_SEARCH_GAP;
-                        String matKw0 = partSearchKeywords
-                                .getOrDefault(r.partId, "").trim().toLowerCase(Locale.ROOT);
-                        List<PartMaterialIndex.Entry> visible0 = filterMaterials(r.materials, matKw0);
-                        y += visible0.size() * AnvilTheme.SUB_ROW_H;
-                        for (PartMaterialIndex.Entry m : visible0) {
-                            MaterialDetail detail0 = expandedDetails.get(detailKey(r.partId, m.id));
-                            if (detail0 != null) {
-                                y += detail0.measureHeight(font, detailW, true)
-                                        + AnvilTheme.CARD_GAP;
-                            }
-                        }
-                        y += 4;
-                        y += 2;
-                        continue;
-                    }
+                if (p > 0.01f) {
+                    // 搜索框
+                    SearchBox sb = getOrCreateSearchBox(r.partId);
+                    int sbX = innerLeft + DETAIL_INDENT;
+                    int sbW = innerW - DETAIL_INDENT;
 
-                    RenderSystem.setShaderColor(1f, 1f, 1f, fadeT);
+                    String matKw = partSearchKeywords
+                            .getOrDefault(r.partId, "").trim().toLowerCase(Locale.ROOT);
+                    List<PartMaterialIndex.Entry> visible = filterMaterials(r.materials, matKw);
+
+                    RenderSystem.setShaderColor(1f, 1f, 1f, p);
                     try {
-                        SearchBox sb = getOrCreateSearchBox(r.partId);
-                        int sbX = innerLeft + DETAIL_INDENT;
-                        int sbW = innerW - DETAIL_INDENT;
                         sb.setBounds(sbX, y, sbW, PART_SEARCH_H);
                         sb.render(ps, mouseX, mouseY, font);
 
-                        partSearchHits.add(new PartSearchHit(sbX, y, sbW,
-                                PART_SEARCH_H, r.partId));
+                        // 只在真正展开时添加命中区
+                        if (isExpanded) {
+                            partSearchHits.add(new PartSearchHit(sbX, y, sbW,
+                                    PART_SEARCH_H, r.partId));
+                        }
 
-                        y += PART_SEARCH_H + PART_SEARCH_GAP;
-
-                        String matKw = partSearchKeywords
-                                .getOrDefault(r.partId, "").trim().toLowerCase(Locale.ROOT);
-                        List<PartMaterialIndex.Entry> visible = filterMaterials(r.materials, matKw);
+                        int yy = y + PART_SEARCH_H + PART_SEARCH_GAP;
 
                         for (PartMaterialIndex.Entry m : visible) {
-                            boolean mHover = mouseY >= y && mouseY <= y + AnvilTheme.SUB_ROW_H
+                            boolean mHover = mouseY >= yy && mouseY <= yy + AnvilTheme.SUB_ROW_H
                                     && mouseX >= innerLeft && mouseX <= innerRight;
-                            String key = detailKey(r.partId, m.id);
-                            MaterialDetail detail = expandedDetails.get(key);
+                            String dk = detailKey(r.partId, m.id);
+                            MaterialDetail detail = expandedDetails.get(dk);
 
-                            drawMaterialRow(ps, font, innerLeft + DETAIL_INDENT, y,
+                            drawMaterialRow(ps, font, innerLeft + DETAIL_INDENT, yy,
                                     innerW - DETAIL_INDENT, m, mHover, detail != null);
 
-                            materialHits.add(new Hit(innerLeft + DETAIL_INDENT, y,
-                                    innerW - DETAIL_INDENT, AnvilTheme.SUB_ROW_H, r.partEntry, m));
+                            if (isExpanded) {
+                                materialHits.add(new Hit(innerLeft + DETAIL_INDENT, yy,
+                                        innerW - DETAIL_INDENT, AnvilTheme.SUB_ROW_H,
+                                        r.partEntry, m));
+                            }
 
-                            y += AnvilTheme.SUB_ROW_H;
+                            yy += AnvilTheme.SUB_ROW_H;
 
                             if (detail != null) {
                                 int cardH = detail.measureHeight(font, detailW, true);
-                                AnvilTheme.cardBg(ps, innerLeft + DETAIL_INDENT, y,
+                                AnvilTheme.cardBg(ps, innerLeft + DETAIL_INDENT, yy,
                                         detailW, cardH, AnvilTheme.ACCENT);
 
                                 List<Component> tip = detail.render(ps, font,
-                                        innerLeft + DETAIL_INDENT, y, detailW,
+                                        innerLeft + DETAIL_INDENT, yy, detailW,
                                         mouseX, mouseY, true, false);
                                 if (tip != null && !tip.isEmpty()) {
                                     panel.setPendingTooltip(tip);
                                 }
-                                y += cardH + AnvilTheme.CARD_GAP;
+                                yy += cardH + AnvilTheme.CARD_GAP;
                             }
                         }
                     } finally {
                         RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                    }
+
+                    // 推进 y（与 computeTotalHeight 保持一致）
+                    y += PART_SEARCH_H + PART_SEARCH_GAP;
+                    y += visible.size() * AnvilTheme.SUB_ROW_H;
+                    for (PartMaterialIndex.Entry m : visible) {
+                        MaterialDetail d = expandedDetails.get(detailKey(r.partId, m.id));
+                        if (d != null) y += d.measureHeight(font, detailW, true) + AnvilTheme.CARD_GAP;
                     }
                     y += 4;
                 }
@@ -364,19 +356,20 @@ public class PartMaterialTab implements AnvilTab {
         int totalH = 0;
         for (Row r : rows) {
             totalH += AnvilTheme.ROW_H;
-            if (expanded.contains(r.partId)) {
+
+            boolean isExpanded = expanded.contains(r.partId);
+            String key = "part.expand:" + r.partId;
+            float p = AnvilWidgetAnimations.expandProgress(key, isExpanded);
+
+            if (p > 0.01f) {
                 totalH += PART_SEARCH_H + PART_SEARCH_GAP;
 
                 String matKw = partSearchKeywords
                         .getOrDefault(r.partId, "").trim().toLowerCase(Locale.ROOT);
                 for (PartMaterialIndex.Entry m : filterMaterials(r.materials, matKw)) {
                     totalH += AnvilTheme.SUB_ROW_H;
-                    String key = detailKey(r.partId, m.id);
-                    MaterialDetail d = expandedDetails.get(key);
-                    if (d != null) {
-                        totalH += d.measureHeight(font, detailW, true)
-                                + AnvilTheme.CARD_GAP;
-                    }
+                    MaterialDetail d = expandedDetails.get(detailKey(r.partId, m.id));
+                    if (d != null) totalH += d.measureHeight(font, detailW, true) + AnvilTheme.CARD_GAP;
                 }
                 totalH += 4;
             }
@@ -385,15 +378,10 @@ public class PartMaterialTab implements AnvilTab {
         return totalH;
     }
 
-    // ============================================================
-    // ===== 行绘制（★ 统一风格）=================================
-    // ============================================================
-
     private void drawPartRow(PoseStack ps, Font font,
                              int x, int y, int w, Row r,
                              boolean hover, boolean expanded) {
-        String rowKey = r.partId != null ? r.partId.toString()
-                : String.valueOf(r.hashCode());
+        String rowKey = r.partId != null ? r.partId.toString() : String.valueOf(r.hashCode());
         float hoverT = AnvilWidgetAnimations.rowHover("part:" + rowKey, hover);
         AnvilTheme.row(ps, x, y, w, AnvilTheme.ROW_H, hoverT, 0f);
         if (expanded) {
@@ -407,8 +395,7 @@ public class PartMaterialTab implements AnvilTab {
 
         int textY = AnvilTheme.centeredTextY(y, AnvilTheme.ROW_H, font);
         String name = r.partEntry != null ? r.partEntry.getDisplayName() : r.display;
-        font.draw(ps, name, x + 4 + ICON_SIZE + 6, textY,
-                hover || expanded ? AnvilTheme.TEXT_PRIMARY : AnvilTheme.TEXT_PRIMARY);
+        font.draw(ps, name, x + 4 + ICON_SIZE + 6, textY, AnvilTheme.TEXT_PRIMARY);
 
         String count = "(" + r.materials.size() + ")";
         int cw = font.width(count);
@@ -424,8 +411,7 @@ public class PartMaterialTab implements AnvilTab {
                                  PartMaterialIndex.Entry m, boolean hover,
                                  boolean isOpen) {
         String rowKey = m.id != null ? m.id.toString() : String.valueOf(m.hashCode());
-        float hoverT = AnvilWidgetAnimations.rowHover("partmat:" + rowKey,
-                hover || isOpen);
+        float hoverT = AnvilWidgetAnimations.rowHover("partmat:" + rowKey, hover || isOpen);
         AnvilTheme.row(ps, x, y, w, AnvilTheme.SUB_ROW_H, hoverT, 0f);
         int textY = AnvilTheme.centeredTextY(y, AnvilTheme.SUB_ROW_H, font);
         font.draw(ps, m.getDisplayName(), x + 6, textY,
@@ -445,7 +431,7 @@ public class PartMaterialTab implements AnvilTab {
     }
 
     // ============================================================
-    // ===== 交互（保持不变）======================================
+    // ===== 交互 =================================================
     // ============================================================
 
     @Override
@@ -494,10 +480,9 @@ public class PartMaterialTab implements AnvilTab {
                     MaterialDetail d = expandedDetails.get(key);
                     if (d != null) {
                         int detailW = panel.getPanelWidth() - 5 - 5
-                                - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING
-                                - DETAIL_INDENT;
-                        y += d.measureHeight(Minecraft.getInstance().font,
-                                detailW, true) + AnvilTheme.CARD_GAP;
+                                - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING - DETAIL_INDENT;
+                        y += d.measureHeight(Minecraft.getInstance().font, detailW, true)
+                                + AnvilTheme.CARD_GAP;
                     }
                 }
                 y += 4;
