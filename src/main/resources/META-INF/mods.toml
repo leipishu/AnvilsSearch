@@ -73,11 +73,3 @@ mandatory=true
 versionRange="[1.9.45,)"
 ordering="AFTER"
 side="BOTH"
-
-# 6. JEI（可选）
-[[dependencies.anvilssearch]]
-modId="jei"
-mandatory=false
-versionRange="[9,)"
-ordering="NONE"
-side="CLIENT"
