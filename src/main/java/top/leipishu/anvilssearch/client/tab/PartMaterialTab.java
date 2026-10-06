@@ -41,6 +41,9 @@ public class PartMaterialTab implements AnvilTab {
     private List<Row> rows = new ArrayList<>();
     private final Set<ResourceLocation> expanded = new HashSet<>();
 
+    /** ★ 材料卡片的目标展开态。key = detailKey(partId, matId)。 */
+    private final Set<String> expandedMaterialKeys = new HashSet<>();
+
     private int scrollOffset = 0;
     private int maxScrollOffset = 0;
     private final ScrollBar scrollBar = new ScrollBar();
@@ -52,6 +55,7 @@ public class PartMaterialTab implements AnvilTab {
     private final Map<ResourceLocation, String> partSearchKeywords = new HashMap<>();
     private ResourceLocation focusedPartSearch = null;
 
+    /** 材料卡片数据缓存（展开过一次就保留）。 */
     private final Map<String, MaterialDetail> expandedDetails = new HashMap<>();
 
     private static final class Hit {
@@ -212,6 +216,60 @@ public class PartMaterialTab implements AnvilTab {
     }
 
     // ============================================================
+    // ===== 高度计算（与渲染严格一致）=============================
+    // ============================================================
+
+    /**
+     * 部件展开区的"完整高度"——按每个材料卡片当前动画进度动态计算。
+     */
+    private int computeExpandedFullHeight(Row r, Font font, int detailW) {
+        int h = PART_SEARCH_H + PART_SEARCH_GAP;
+
+        String matKw = partSearchKeywords
+                .getOrDefault(r.partId, "").trim().toLowerCase(Locale.ROOT);
+        List<PartMaterialIndex.Entry> visible = filterMaterials(r.materials, matKw);
+
+        for (PartMaterialIndex.Entry m : visible) {
+            h += AnvilTheme.SUB_ROW_H;
+
+            String dk = detailKey(r.partId, m.id);
+            MaterialDetail detail = expandedDetails.get(dk);
+            if (detail != null) {
+                float p2 = AnvilWidgetAnimations.expandProgress(
+                        "partmat.expand:" + dk, expandedMaterialKeys.contains(dk));
+                if (p2 > 0.01f) {
+                    int fullCardH = detail.measureHeight(font, detailW, true);
+                    h += (int) ((fullCardH + AnvilTheme.CARD_GAP) * p2);
+                }
+            }
+        }
+        h += 4;
+        return h;
+    }
+
+    /** 单个部件行占用的总高度（含展开区动画态高度）。 */
+    private int rowOccupiedHeight(Row r, Font font, int detailW) {
+        int h = AnvilTheme.ROW_H;
+
+        float p1 = AnvilWidgetAnimations.expandProgress(
+                "part.expand:" + r.partId, expanded.contains(r.partId));
+        if (p1 > 0.01f) {
+            int fullH = computeExpandedFullHeight(r, font, detailW);
+            h += Math.max(1, (int) (fullH * p1));
+        }
+        h += 2;
+        return h;
+    }
+
+    private int computeTotalHeight(Font font, int detailW) {
+        int totalH = 0;
+        for (Row r : rows) {
+            totalH += rowOccupiedHeight(r, font, detailW);
+        }
+        return totalH;
+    }
+
+    // ============================================================
     // ===== 渲染 =================================================
     // ============================================================
 
@@ -254,9 +312,9 @@ public class PartMaterialTab implements AnvilTab {
             return;
         }
 
-        boolean scissorOk = ScissorHelper.enableScissor(
+        boolean outerOK = ScissorHelper.enableScissor(
                 innerLeft, innerTop, innerW, innerH);
-        if (scissorOk) RenderSystem.disableDepthTest();
+        if (outerOK) RenderSystem.disableDepthTest();
         try {
             int y = innerTop - scrollOffset;
 
@@ -269,42 +327,43 @@ public class PartMaterialTab implements AnvilTab {
                 y += AnvilTheme.ROW_H;
 
                 String key = "part.expand:" + r.partId;
-                float p = AnvilWidgetAnimations.expandProgress(key, isExpanded);
+                float p1 = AnvilWidgetAnimations.expandProgress(key, isExpanded);
 
-                if (p > 0.01f) {
+                if (p1 > 0.01f) {
                     int fullH = computeExpandedFullHeight(r, font, detailW);
-                    int visH = Math.max(1, (int) (fullH * p));
+                    int visH = Math.max(1, (int) (fullH * p1));
 
-                    // ★ 临时关闭外层 scissor，启用内层 scissor 到可见区域
-                    ScissorHelper.disableScissor();
-                    try {
-                        int clipTop = Math.max(y, innerTop);
-                        int clipBot = Math.min(y + visH, innerTop + innerH);
-                        int clipH = clipBot - clipTop;
+                    int clipTop = Math.max(y, innerTop);
+                    int clipBot = Math.min(y + visH, innerTop + innerH);
+                    int clipH = clipBot - clipTop;
 
-                        if (clipH > 0) {
-                            boolean sOk = ScissorHelper.enableScissor(
+                    if (clipH > 0) {
+                        // ★ 关闭外层 → 启用内层（部件展开区）→ 渲染 → 恢复
+                        ScissorHelper.disableScissor();
+                        boolean bodyOK = false;
+                        try {
+                            bodyOK = ScissorHelper.enableScissor(
                                     innerLeft, clipTop, innerW, clipH);
-                            if (sOk) RenderSystem.disableDepthTest();
-                            try {
-                                renderExpandedBody(ps, font, r, innerLeft, y,
-                                        innerW, detailW, mouseX, mouseY, isExpanded);
-                            } finally {
-                                if (sOk) ScissorHelper.disableScissor();
+                            if (bodyOK) RenderSystem.disableDepthTest();
+                            renderExpandedBody(ps, font, r, innerLeft, y,
+                                    innerW, detailW, mouseX, mouseY,
+                                    isExpanded, bodyOK, clipTop, innerW, clipH);
+                        } finally {
+                            if (bodyOK) ScissorHelper.disableScissor();
+                            if (outerOK) {
+                                ScissorHelper.enableScissor(
+                                        innerLeft, innerTop, innerW, innerH);
+                                RenderSystem.disableDepthTest();
                             }
                         }
-                    } finally {
-                        boolean restored = ScissorHelper.enableScissor(
-                                innerLeft, innerTop, innerW, innerH);
-                        if (restored) RenderSystem.disableDepthTest();
                     }
 
-                    y += fullH;
+                    y += visH;
                 }
                 y += 2;
             }
         } finally {
-            if (scissorOk) {
+            if (outerOK) {
                 ScissorHelper.disableScissor();
                 RenderSystem.enableDepthTest();
             }
@@ -313,54 +372,21 @@ public class PartMaterialTab implements AnvilTab {
         renderScrollBar(ps, innerRight + 2, innerTop, innerH, mouseX, mouseY);
     }
 
-    private int computeTotalHeight(Font font, int detailW) {
-        int totalH = 0;
-        for (Row r : rows) {
-            totalH += AnvilTheme.ROW_H;
-
-            boolean isExpanded = expanded.contains(r.partId);
-            float p = AnvilWidgetAnimations.expandProgress(
-                    "part.expand:" + r.partId, isExpanded);
-
-            if (p > 0.01f) {
-                int fullH = computeExpandedFullHeight(r, font, detailW);
-                totalH += (int) (fullH * p);
-            }
-            totalH += 2;
-        }
-        return totalH;
-    }
-
-    /** 计算某行展开后的完整内容高度。 */
-    private int computeExpandedFullHeight(Row r, Font font, int detailW) {
-        int h = PART_SEARCH_H + PART_SEARCH_GAP;
-
-        String matKw = partSearchKeywords
-                .getOrDefault(r.partId, "").trim().toLowerCase(Locale.ROOT);
-        List<PartMaterialIndex.Entry> visible = filterMaterials(r.materials, matKw);
-
-        h += visible.size() * AnvilTheme.SUB_ROW_H;
-
-        for (PartMaterialIndex.Entry m : visible) {
-            MaterialDetail d = expandedDetails.get(detailKey(r.partId, m.id));
-            if (d != null) {
-                h += d.measureHeight(font, detailW, true) + AnvilTheme.CARD_GAP;
-            }
-        }
-
-        h += 4;
-        return h;
-    }
-
     /**
-     * 渲染展开内容（搜索框 + 材料行 + 卡片）。
+     * 渲染部件展开区内容。
      *
-     * <p>按完整布局坐标渲染；可见高度由调用方用 scissor 裁剪。
-     * 命中区只在 {@code isExpanded == true} 时添加，避免动画期间误点。
+     * @param bodyOK       部件展开区 scissor 是否启用
+     * @param bodyClipTop  部件展开区 scissor 顶部（用于材料卡片切换时恢复）
+     * @param bodyClipH    部件展开区 scissor 高度
+     */
+    /**
+     * 渲染部件展开区内容。
      */
     private void renderExpandedBody(PoseStack ps, Font font, Row r,
                                     int innerLeft, int y, int innerW, int detailW,
-                                    int mouseX, int mouseY, boolean isExpanded) {
+                                    int mouseX, int mouseY, boolean isExpanded,
+                                    boolean bodyOK, int bodyClipTop,
+                                    int innerW2, int bodyClipH) {
         SearchBox sb = getOrCreateSearchBox(r.partId);
         int sbX = innerLeft + DETAIL_INDENT;
         int sbW = innerW - DETAIL_INDENT;
@@ -381,14 +407,20 @@ public class PartMaterialTab implements AnvilTab {
 
         yy += PART_SEARCH_H + PART_SEARCH_GAP;
 
+        // ★ 部件展开区 scissor 的底边（屏幕坐标）
+        int bodyBottom = bodyClipTop + bodyClipH;
+
         for (PartMaterialIndex.Entry m : visible) {
             boolean mHover = mouseY >= yy && mouseY <= yy + AnvilTheme.SUB_ROW_H
                     && mouseX >= innerLeft && mouseX <= innerLeft + innerW;
             String dk = detailKey(r.partId, m.id);
             MaterialDetail detail = expandedDetails.get(dk);
 
+            // ★ 材料行箭头按"目标展开态"更新，不用 detail != null
+            boolean materialOpen = expandedMaterialKeys.contains(dk);
+
             drawMaterialRow(ps, font, innerLeft + DETAIL_INDENT, yy,
-                    innerW - DETAIL_INDENT, m, mHover, detail != null);
+                    innerW - DETAIL_INDENT, m, mHover, materialOpen);
 
             if (isExpanded) {
                 materialHits.add(new Hit(innerLeft + DETAIL_INDENT, yy,
@@ -399,17 +431,44 @@ public class PartMaterialTab implements AnvilTab {
             yy += AnvilTheme.SUB_ROW_H;
 
             if (detail != null) {
-                int cardH = detail.measureHeight(font, detailW, true);
-                AnvilTheme.cardBg(ps, innerLeft + DETAIL_INDENT, yy,
-                        detailW, cardH, AnvilTheme.ACCENT);
+                float p2 = AnvilWidgetAnimations.expandProgress(
+                        "partmat.expand:" + dk, materialOpen);
 
-                List<Component> tip = detail.render(ps, font,
-                        innerLeft + DETAIL_INDENT, yy, detailW,
-                        mouseX, mouseY, true, false);
-                if (tip != null && !tip.isEmpty()) {
-                    panel.setPendingTooltip(tip);
+                if (p2 > 0.01f) {
+                    int fullCardH = detail.measureHeight(font, detailW, true);
+                    int cardVisH = Math.max(1, (int) (fullCardH * p2));
+
+                    // ★ 卡片 scissor 与 body 范围求交集
+                    int cTop = Math.max(yy, bodyClipTop);
+                    int cBot = Math.min(yy + cardVisH, bodyBottom);
+                    int cH = cBot - cTop;
+
+                    if (cH > 0) {
+                        if (bodyOK) ScissorHelper.disableScissor();
+                        boolean cardOK = false;
+                        try {
+                            cardOK = ScissorHelper.enableScissor(
+                                    innerLeft + DETAIL_INDENT, cTop, detailW, cH);
+                            if (cardOK) RenderSystem.disableDepthTest();
+
+                            List<Component> tip = detail.render(ps, font,
+                                    innerLeft + DETAIL_INDENT, yy, detailW,
+                                    mouseX, mouseY, true, false);
+                            if (tip != null && !tip.isEmpty()) {
+                                panel.setPendingTooltip(tip);
+                            }
+                        } finally {
+                            if (cardOK) ScissorHelper.disableScissor();
+                            if (bodyOK) {
+                                ScissorHelper.enableScissor(
+                                        innerLeft, bodyClipTop, innerW, bodyClipH);
+                                RenderSystem.disableDepthTest();
+                            }
+                        }
+                    }
+
+                    yy += cardVisH + AnvilTheme.CARD_GAP;
                 }
-                yy += cardH + AnvilTheme.CARD_GAP;
             }
         }
     }
@@ -498,30 +557,74 @@ public class PartMaterialTab implements AnvilTab {
             }
         }
 
+        // ★ 坐标与 renderContent 严格对齐
+        //   renderContent 里 innerTop = (py + contentTop) + PAD_S，
+        //   py = 0（面板位于屏幕顶端），所以 innerTop = contentTop + PAD_S
         int contentTop = SEARCH_BOX_Y + SEARCH_BOX_H + 4;
-        int y = contentTop - scrollOffset;
+        int innerTop = contentTop + AnvilTheme.PAD_S;
+
+        Font font = Minecraft.getInstance().font;
+
+        // 计算 detailW（与 renderContent 一致）
+        int pw = panel.getPanelWidth();
+        int contentLeft  = 5;
+        int contentRight = pw - 5;
+        int innerLeft    = contentLeft + AnvilTheme.PAD_S;
+        int innerRight   = contentRight - AnvilTheme.PAD_S
+                - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING - 2;
+        int innerW       = innerRight - innerLeft;
+        int detailW      = innerW - DETAIL_INDENT;
+
+        int y = innerTop - scrollOffset;
+
         for (Row r : rows) {
+            // 部件行点击区
             if (my >= y && my <= y + AnvilTheme.ROW_H) {
                 toggleExpanded(r.partId);
                 return true;
             }
             y += AnvilTheme.ROW_H;
+
+            // 部件展开区内的点击（仅在完全展开时响应）
             if (expanded.contains(r.partId)) {
-                y += PART_SEARCH_H + PART_SEARCH_GAP;
-                String matKw = partSearchKeywords
-                        .getOrDefault(r.partId, "").trim().toLowerCase(Locale.ROOT);
-                for (PartMaterialIndex.Entry m : filterMaterials(r.materials, matKw)) {
-                    y += AnvilTheme.SUB_ROW_H;
-                    String key = detailKey(r.partId, m.id);
-                    MaterialDetail d = expandedDetails.get(key);
-                    if (d != null) {
-                        int detailW = panel.getPanelWidth() - 5 - 5
-                                - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING - DETAIL_INDENT;
-                        y += d.measureHeight(Minecraft.getInstance().font, detailW, true)
-                                + AnvilTheme.CARD_GAP;
+                String key = "part.expand:" + r.partId;
+                float p1 = AnvilWidgetAnimations.expandProgress(key, true);
+                int fullH = computeExpandedFullHeight(r, font, detailW);
+                int visH = Math.max(1, (int) (fullH * p1));
+
+                if (p1 >= 0.99f) {
+                    // 完全展开：精确坐标对齐
+                    int sbY = y;
+                    // 材料行（搜索框由 partSearchHits 处理，这里只判材料行 + 卡片）
+                    String matKw = partSearchKeywords
+                            .getOrDefault(r.partId, "").trim().toLowerCase(Locale.ROOT);
+                    List<PartMaterialIndex.Entry> visible = filterMaterials(r.materials, matKw);
+
+                    int mY = y + PART_SEARCH_H + PART_SEARCH_GAP;
+                    for (PartMaterialIndex.Entry m : visible) {
+                        // 材料行点击
+                        if (my >= mY && my <= mY + AnvilTheme.SUB_ROW_H) {
+                            toggleDetail(r.partEntry, m);
+                            return true;
+                        }
+                        mY += AnvilTheme.SUB_ROW_H;
+
+                        // 材料卡片高度
+                        String dk = detailKey(r.partId, m.id);
+                        MaterialDetail detail = expandedDetails.get(dk);
+                        if (detail != null) {
+                            float p2 = AnvilWidgetAnimations.expandProgress(
+                                    "partmat.expand:" + dk, expandedMaterialKeys.contains(dk));
+                            if (p2 > 0.01f) {
+                                int fullCardH = detail.measureHeight(font, detailW, true);
+                                int cardVisH = Math.max(1, (int) (fullCardH * p2));
+                                mY += cardVisH + AnvilTheme.CARD_GAP;
+                            }
+                        }
                     }
                 }
-                y += 4;
+
+                y += visH;
             }
             y += 2;
         }
@@ -531,28 +634,39 @@ public class PartMaterialTab implements AnvilTab {
     private void toggleDetail(PartMaterialIndex.PartEntry part,
                               PartMaterialIndex.Entry material) {
         String key = detailKey(part.partId, material.id);
-        if (expandedDetails.containsKey(key)) {
-            expandedDetails.remove(key);
-            return;
-        }
 
-        MaterialStatsId st = null;
-        try {
-            if (part.partItem instanceof slimeknights.tconstruct.library.tools.part.IMaterialItem mi) {
-                st = top.leipishu.tinkerssearch.recipe.MaterialCompatibility.inferStatType(mi);
+        // 目标态切换
+        boolean wasExpanded = expandedMaterialKeys.contains(key);
+        if (wasExpanded) {
+            expandedMaterialKeys.remove(key);
+        } else {
+            expandedMaterialKeys.add(key);
+            // 首次展开时才构建卡片数据
+            if (!expandedDetails.containsKey(key)) {
+                MaterialStatsId st = null;
+                try {
+                    if (part.partItem instanceof slimeknights.tconstruct.library.tools.part.IMaterialItem mi) {
+                        st = top.leipishu.tinkerssearch.recipe.MaterialCompatibility.inferStatType(mi);
+                    }
+                } catch (Throwable ignored) {}
+
+                MaterialDetail d = MaterialDetailBuilder.build(material.id, st, part.partItem);
+                if (d != null) {
+                    expandedDetails.put(key, d);
+                } else {
+                    expandedMaterialKeys.remove(key);
+                }
             }
-        } catch (Throwable ignored) {}
-
-        MaterialDetail d = MaterialDetailBuilder.build(material.id, st, part.partItem);
-        if (d != null) expandedDetails.put(key, d);
+        }
     }
 
     private void toggleExpanded(ResourceLocation partId) {
         if (!expanded.remove(partId)) {
             expanded.add(partId);
         } else {
+            // 收起部件：清空该部件下所有材料的目标展开态
             String prefix = partId + "|";
-            expandedDetails.keySet().removeIf(k -> k.startsWith(prefix));
+            expandedMaterialKeys.removeIf(k -> k.startsWith(prefix));
 
             if (partId.equals(focusedPartSearch)) {
                 SearchBox sb = partSearchBoxes.get(partId);
