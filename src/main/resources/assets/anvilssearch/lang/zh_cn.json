@@ -1,0 +1,112 @@
+{
+  "key.category.anvilssearch": "铁砧搜索",
+  "key.anvilssearch.toggle_panel": "开关搜索面板",
+
+  "gui.anvilssearch.tab.parts": "部件",
+  "gui.anvilssearch.tab.simulator": "模拟",
+  "gui.anvilssearch.tab.modifier": "强化",
+
+  "gui.anvilssearch.parts.empty": "暂无可用部件",
+
+  "gui.anvilssearch.tools.empty": "未加载工具",
+
+  "gui.anvilssearch.sim.pick_tool": "从左侧选择工具",
+  "gui.anvilssearch.sim.no_tool": "未选择工具",
+  "gui.anvilssearch.sim.materials": "已选材料",
+  "gui.anvilssearch.sim.tool_traits": "工具特性",
+  "gui.anvilssearch.sim.select_materials": "选择材料后此处显示部件详情",
+  "gui.anvilssearch.sim.click_to_choose": "点击选择",
+
+  "gui.anvilssearch.picker.empty": "（无可用材料）",
+  "gui.anvilssearch.detail.traits": "特性",
+  "gui.anvilssearch.detail.cost": "消耗：%1$s mB",
+  "gui.anvilssearch.detail.no_desc": "（暂无描述）",
+
+  "gui.anvilssearch.picker.search_hint": "搜索材料...",
+  "gui.anvilssearch.parts.search_material_hint": "搜索材料...",
+
+  "gui.anvilssearch.modifier.search_hint": "搜索强化...",
+  "gui.anvilssearch.modifier.center_item": "物品",
+  "gui.anvilssearch.modifier.pick_hint": "从左侧选择强化",
+  "gui.anvilssearch.modifier.no_item": "中间槽位没有物品",
+  "gui.anvilssearch.modifier.applicable": "可应用于此物品",
+  "gui.anvilssearch.modifier.not_applicable": "不适用于此物品",
+  "gui.anvilssearch.modifier.slots": "需要槽位：",
+  "gui.anvilssearch.modifier.slots_unknown": "（?）",
+  "gui.anvilssearch.modifier.description": "描述",
+  "gui.anvilssearch.modifier.no_description": "（暂无描述）",
+  "gui.anvilssearch.modifier.empty": "未加载强化",
+  "gui.anvilssearch.modifier.level": "等级 %1$s",
+  "gui.anvilssearch.modifier.no_recipe": "（无配方）",
+  "gui.anvilssearch.modifier.slots_label": "需要槽位：",
+  "gui.anvilssearch.modifier.slots_none": "无",
+
+  "gui.anvilssearch.modifier.click_expand": "点击展开 %1$s 个等级",
+  "gui.anvilssearch.modifier.incremental_hint": "叠加配方：每投入 +%1$s 进度，每 %2$s 进度升 1 级",
+  "gui.anvilssearch.modifier.tag_incremental": "叠",
+  "gui.anvilssearch.modifier.incremental_tag": "叠 +%1$s/%2$s",
+  "gui.anvilssearch.modifier.incremental_title": "叠加强化",
+  "gui.anvilssearch.modifier.incremental_summary": "每级 %1$s 个 / 最高 %2$s 级",
+
+  "gui.anvilssearch.modifier.filter.all": "全部",
+  "gui.anvilssearch.modifier.filter.slots": "槽位",
+  "gui.anvilssearch.modifier.filter.slots_n": "槽位(%1$s)",
+  "gui.anvilssearch.modifier.filter.favorites": "只看收藏",
+  "gui.anvilssearch.modifier.favorite.add": "加入收藏",
+  "gui.anvilssearch.modifier.favorite.remove": "取消收藏",
+
+  "gui.anvilssearch.slot.upgrade": "升级",
+  "gui.anvilssearch.slot.ability": "能力",
+  "gui.anvilssearch.slot.defense": "防御",
+  "gui.anvilssearch.slot.soul": "灵魂",
+  "gui.anvilssearch.slot.unknown": "未知",
+
+  "gui.anvilssearch.sim.tools_header": "工具",
+  "gui.anvilssearch.sim.parts_header": "部件",
+  "gui.anvilssearch.sim.preview_header": "预览",
+  "gui.anvilssearch.slot.none": "无槽位",
+  "gui.anvilssearch.modifier.filter.select_all": "全选",
+  "gui.anvilssearch.modifier.filter.clear": "清空",
+
+
+  "gui.anvilssearch.modifier.requirements_error": "前置条件未满足",
+  "gui.anvilssearch.modifier.requirements_generic": "前置条件未满足",
+  "gui.anvilssearch.modifier.variant": "变体",
+
+  "gui.anvilssearch.modifier.unlimited_title": "无上限强化",
+  "gui.anvilssearch.modifier.unlimited_hint": "该强化无等级上限，可反复叠加",
+
+  "gui.anvilssearch.modifier.filter.incremental_tip": "只显示叠加配方",
+  "gui.anvilssearch.modifier.filter.unlimited_tip": "只显示无上限配方",
+  "gui.anvilssearch.modifier.filter.req_met_tip": "只显示已达成前置的强化",
+
+  "gui.anvilssearch.modifier.slot.not_required": "该槽位不需要材料",
+  "gui.anvilssearch.modifier.slot.expected": "需要放入：",
+
+  "gui.anvilssearch.sim.save": "保存",
+  "gui.anvilssearch.sim.save.tip": "保存到 config/anvilssearch-presets/",
+  "gui.anvilssearch.sim.save.ok": "已保存",
+  "gui.anvilssearch.sim.save.fail": "保存失败",
+
+  "gui.anvilssearch.sim.export": "导出",
+  "gui.anvilssearch.sim.export.tip": "选择文件位置导出",
+  "gui.anvilssearch.sim.export.ok": "已导出",
+  "gui.anvilssearch.sim.export.fail": "导出失败",
+
+  "gui.anvilssearch.sim.import": "导入",
+  "gui.anvilssearch.sim.import.tip": "打开方案浏览器",
+  "gui.anvilssearch.sim.import.ok": "已导入",
+  "gui.anvilssearch.sim.import.fail": "内容无效",
+  "gui.anvilssearch.sim.import.empty": "请先选择工具",
+  "gui.anvilssearch.sim.import.unknown_tool": "未知工具: %1$s",
+
+  "gui.anvilssearch.sim.browser.title": "已保存方案",
+  "gui.anvilssearch.sim.browser.from_clipboard": "剪贴板",
+  "gui.anvilssearch.sim.browser.from_file": "打开文件",
+  "gui.anvilssearch.sim.browser.empty": "暂无已保存方案",
+  "gui.anvilssearch.sim.browser.parts_suffix": "部件",
+  "gui.anvilssearch.sim.export.incomplete": "请先填满所有部件槽位",
+  "gui.anvilssearch.sim.browser.delete": "删除",
+  "gui.anvilssearch.sim.browser.delete.tip": "删除此方案"
+
+}

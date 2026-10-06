@@ -1,0 +1,110 @@
+{
+  "key.category.anvilssearch": "Anvil's Search",
+  "key.anvilssearch.toggle_panel": "Toggle Search Panel",
+
+  "gui.anvilssearch.tab.parts": "Parts",
+  "gui.anvilssearch.tab.simulator": "Simulator",
+  "gui.anvilssearch.tab.modifier": "Modifiers",
+
+  "gui.anvilssearch.parts.empty": "No parts available",
+
+  "gui.anvilssearch.tools.empty": "No tools loaded",
+
+  "gui.anvilssearch.sim.pick_tool": "Pick a tool",
+  "gui.anvilssearch.sim.no_tool": "No tool selected",
+  "gui.anvilssearch.sim.materials": "Materials",
+  "gui.anvilssearch.sim.tool_traits": "Tool Traits",
+  "gui.anvilssearch.sim.select_materials": "Choose materials",
+  "gui.anvilssearch.sim.click_to_choose": "Click to choose",
+
+  "gui.anvilssearch.picker.empty": "(no materials)",
+  "gui.anvilssearch.detail.traits": "Traits",
+  "gui.anvilssearch.detail.cost": "Cost: %1$s mB",
+  "gui.anvilssearch.detail.no_desc": "(no description)",
+
+  "gui.anvilssearch.picker.search_hint": "Search material",
+  "gui.anvilssearch.parts.search_material_hint": "Search material",
+
+  "gui.anvilssearch.modifier.search_hint": "Search modifier",
+  "gui.anvilssearch.modifier.center_item": "Item",
+  "gui.anvilssearch.modifier.pick_hint": "Pick a modifier",
+  "gui.anvilssearch.modifier.no_item": "No item in the center slot",
+  "gui.anvilssearch.modifier.applicable": "Applicable to this item",
+  "gui.anvilssearch.modifier.not_applicable": "Not applicable",
+  "gui.anvilssearch.modifier.slots": "Required slots:",
+  "gui.anvilssearch.modifier.slots_unknown": "(?)",
+  "gui.anvilssearch.modifier.description": "Description",
+  "gui.anvilssearch.modifier.no_description": "(No description)",
+  "gui.anvilssearch.modifier.empty": "No modifiers loaded",
+  "gui.anvilssearch.modifier.level": "Level %1$s",
+  "gui.anvilssearch.modifier.no_recipe": "(no recipe)",
+  "gui.anvilssearch.modifier.slots_label": "Slots:",
+  "gui.anvilssearch.modifier.slots_none": "None",
+
+  "gui.anvilssearch.modifier.click_expand": "Click to expand %1$s levels",
+  "gui.anvilssearch.modifier.incremental_hint": "Incremental: +%1$s per input, %2$s per level",
+  "gui.anvilssearch.modifier.tag_incremental": "Stk",
+  "gui.anvilssearch.modifier.incremental_tag": "Stk +%1$s/%2$s",
+  "gui.anvilssearch.modifier.incremental_title": "Incremental Modifier",
+  "gui.anvilssearch.modifier.incremental_summary": "Per level: %1$s / Max level: %2$s",
+
+  "gui.anvilssearch.modifier.filter.all": "All",
+  "gui.anvilssearch.modifier.filter.slots": "Slots",
+  "gui.anvilssearch.modifier.filter.slots_n": "Slots(%1$s)",
+  "gui.anvilssearch.modifier.filter.favorites": "Favorites Only",
+  "gui.anvilssearch.modifier.favorite.add": "Add to favorites",
+  "gui.anvilssearch.modifier.favorite.remove": "Remove from favorites",
+
+  "gui.anvilssearch.slot.upgrade": "Upgrade",
+  "gui.anvilssearch.slot.ability": "Ability",
+  "gui.anvilssearch.slot.defense": "Defense",
+  "gui.anvilssearch.slot.soul": "Soul",
+  "gui.anvilssearch.slot.unknown": "Unknown",
+
+  "gui.anvilssearch.sim.tools_header": "Tools",
+  "gui.anvilssearch.sim.parts_header": "Parts",
+  "gui.anvilssearch.sim.preview_header": "Preview",
+  "gui.anvilssearch.slot.none": "No Slot",
+  "gui.anvilssearch.modifier.filter.select_all": "All",
+  "gui.anvilssearch.modifier.filter.clear": "Clear",
+
+  "gui.anvilssearch.modifier.requirements_error": "Req. not met",
+  "gui.anvilssearch.modifier.requirements_generic": "Req. not met",
+  "gui.anvilssearch.modifier.variant": "Variant",
+
+  "gui.anvilssearch.modifier.unlimited_title": "Unlimited Modifier",
+  "gui.anvilssearch.modifier.unlimited_hint": "No level cap, stackable",
+
+  "gui.anvilssearch.modifier.filter.incremental_tip": "Show only incremental modifiers",
+  "gui.anvilssearch.modifier.filter.unlimited_tip": "Show only unlimited-level modifiers",
+  "gui.anvilssearch.modifier.filter.req_met_tip": "Show only modifiers whose requirements are met",
+
+  "gui.anvilssearch.modifier.slot.not_required": "This slot does not require any material",
+  "gui.anvilssearch.modifier.slot.expected": "Needs:",
+
+  "gui.anvilssearch.sim.save": "Save",
+  "gui.anvilssearch.sim.save.tip": "Save to config/anvilssearch-presets/",
+  "gui.anvilssearch.sim.save.ok": "Saved",
+  "gui.anvilssearch.sim.save.fail": "Save failed",
+
+  "gui.anvilssearch.sim.export": "Export",
+  "gui.anvilssearch.sim.export.tip": "Choose a file to export",
+  "gui.anvilssearch.sim.export.ok": "Exported",
+  "gui.anvilssearch.sim.export.fail": "Export failed",
+
+  "gui.anvilssearch.sim.import": "Import",
+  "gui.anvilssearch.sim.import.tip": "Open preset browser",
+  "gui.anvilssearch.sim.import.ok": "Imported",
+  "gui.anvilssearch.sim.import.fail": "Invalid content",
+  "gui.anvilssearch.sim.import.empty": "Select a tool first",
+  "gui.anvilssearch.sim.import.unknown_tool": "Unknown tool: %1$s",
+
+  "gui.anvilssearch.sim.browser.title": "Saved Presets",
+  "gui.anvilssearch.sim.browser.from_clipboard": "Clipboard",
+  "gui.anvilssearch.sim.browser.from_file": "Open File",
+  "gui.anvilssearch.sim.browser.empty": "No saved presets",
+  "gui.anvilssearch.sim.browser.parts_suffix": "parts",
+  "gui.anvilssearch.sim.export.incomplete": "Fill all slots first",
+  "gui.anvilssearch.sim.browser.delete": "Delete",
+  "gui.anvilssearch.sim.browser.delete.tip": "Delete this preset"
+}
