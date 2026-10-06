@@ -18,6 +18,8 @@ import net.minecraftforge.fml.common.Mod;
 import org.lwjgl.opengl.GL11;
 import top.leipishu.anvilssearch.client.AnvilDataReloadListener;
 import top.leipishu.anvilssearch.client.AnvilSidebarPanel;
+import top.leipishu.anvilssearch.client.animation.controller.AnvilPanelAnimations;
+import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 
 import java.util.List;
 
@@ -361,7 +363,12 @@ public class AnvilsSearch {
         boolean hover = mx >= btnX && mx <= btnX + TAB_BUTTON_WIDTH
                 && my >= btnY && my <= btnY + TAB_BUTTON_HEIGHT;
 
-        int bg = hover ? 0xCC444444 : 0xCC1A1A1A;
+        // ★ hover 颜色平滑过渡
+        float hoverT = AnvilPanelAnimations.tabBtnHover(hover);
+
+        int baseBg  = 0xCC1A1A1A;
+        int hoverBg = 0xCC444444;
+        int bg = ColorUtil.lerpARGB(baseBg, hoverBg, hoverT);
         GuiComponent.fill(ps, btnX, btnY, btnX + TAB_BUTTON_WIDTH, btnY + TAB_BUTTON_HEIGHT, bg);
 
         int border = 0x44FFFFFF;
@@ -383,7 +390,10 @@ public class AnvilsSearch {
         String arrow = sidebar.isExpanded() ? "\u25C0" : "\u25B6";
         int tx = btnX + (TAB_BUTTON_WIDTH - font.width(arrow)) / 2;
         int ty = btnY + (TAB_BUTTON_HEIGHT - font.lineHeight) / 2 + 1;
-        font.draw(ps, arrow, tx, ty, hover ? 0xFFFFFFFF : 0xCCCCCCCC);
+        int baseTextColor  = 0xCCCCCCCC;
+        int hoverTextColor = 0xFFFFFFFF;
+        int textColor = ColorUtil.lerpARGB(baseTextColor, hoverTextColor, hoverT);
+        font.draw(ps, arrow, tx, ty, textColor);
     }
 
     // ============================================================

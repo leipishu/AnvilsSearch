@@ -33,6 +33,7 @@ public class ToolListWidget {
         scrollBar.setOnOffsetChanged(v -> scrollOffset = v);
         scrollBar.setThumbMinHeight(16);
         scrollBar.setHoverExpandX(3);
+        scrollBar.setAnimationId("anvil.tools.scroll");
     }
 
     public void setBounds(int x, int y, int w, int h) {

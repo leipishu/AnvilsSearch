@@ -79,6 +79,7 @@ public class PartMaterialTab implements AnvilTab {
         this.scrollBar.setOnOffsetChanged(v -> scrollOffset = v);
         this.scrollBar.setThumbMinHeight(20);
         this.scrollBar.setHoverExpandX(3);
+        this.scrollBar.setAnimationId("anvil.scroll.parts");
     }
 
     @Override public Component getLabel() {
@@ -141,6 +142,7 @@ public class PartMaterialTab implements AnvilTab {
             sb.setHintText(new TranslatableComponent(
                     "gui.anvilssearch.parts.search_material_hint"));
             sb.setOnTextChanged(t -> partSearchKeywords.put(k, t == null ? "" : t));
+            sb.setAnimationId("anvil.partsearch:" + k);
             return sb;
         });
     }

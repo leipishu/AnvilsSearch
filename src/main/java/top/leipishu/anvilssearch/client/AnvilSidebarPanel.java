@@ -33,6 +33,7 @@ public class AnvilSidebarPanel {
     public AnvilSidebarPanel() {
         this.searchBox = new SearchBox(SearchBoxStyle.panel());
         this.searchBox.setOnTextChanged(this::onSearchTextChanged);
+        this.searchBox.setAnimationId("anvil.mainsearch");
 
         tabs.add(new PartMaterialTab(this));
         tabs.add(new ToolSimulatorTab(this));

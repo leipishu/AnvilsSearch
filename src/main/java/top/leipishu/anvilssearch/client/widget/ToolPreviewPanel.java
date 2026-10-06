@@ -59,6 +59,7 @@ public class ToolPreviewPanel {
         scrollBar.setOnOffsetChanged(v -> scrollOffset = v);
         scrollBar.setThumbMinHeight(16);
         scrollBar.setHoverExpandX(3);
+        scrollBar.setAnimationId("anvil.preview.scroll");
     }
 
     public void setBounds(int x, int y, int w, int h) {

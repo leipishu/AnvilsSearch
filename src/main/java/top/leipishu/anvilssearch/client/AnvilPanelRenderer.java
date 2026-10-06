@@ -7,6 +7,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiComponent;
 import top.leipishu.anvilssearch.client.theme.AnvilTheme;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
+import top.leipishu.anvilssearch.client.animation.controller.AnvilPanelAnimations;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
 
@@ -99,11 +100,12 @@ public class AnvilPanelRenderer {
 
         int active = panel.getActiveIndex();
 
+        int ty = py + TAB_ITEM_Y;
+        int th = TAB_ITEM_HEIGHT;
+
         for (int i = 0; i < n; i++) {
             int tx = px + TAB_START_X + i * (eachW + 2);
-            int ty = py + TAB_ITEM_Y;
             int tw = eachW;
-            int th = TAB_ITEM_HEIGHT;
 
             tabHitX[i] = tx;
             tabHitW[i] = tw;
@@ -112,9 +114,22 @@ public class AnvilPanelRenderer {
             boolean isHover  = mouseX >= tx && mouseX <= tx + tw
                     && mouseY >= ty && mouseY <= ty + th;
 
+            // ★ hover 动画（激活的 Tab 不参与 hover 插值）
+            float hoverT = AnvilPanelAnimations.tabHover(i, isHover && !isActive);
+            float activeT = isActive ? 1f : 0f;
+
             String label = tabs.get(i).getLabel().getString();
-            // ★ Tab 按钮：无边框
-            AnvilTheme.tabButton(ps, font, tx, ty, tw, th, label, isHover, isActive);
+            AnvilTheme.tabButton(ps, font, tx, ty, tw, th, label, hoverT, activeT);
+        }
+
+        // ★ 滑动指示器：1px 高金线，位置随 Tab 切换平滑滑动
+        if (active >= 0 && active < n) {
+            int targetX = px + TAB_START_X + active * (eachW + 2);
+            int indicatorX = (int) AnvilPanelAnimations.tabIndicator(targetX);
+            int indicatorY = ty + th - 1;
+            GuiComponent.fill(ps, indicatorX, indicatorY,
+                    indicatorX + eachW, indicatorY + 1,
+                    AnvilTheme.ACCENT);
         }
     }
 

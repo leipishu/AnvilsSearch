@@ -93,6 +93,7 @@ public class ToolSimulatorTab implements AnvilTab {
         this.midScrollBar.setOnOffsetChanged(v -> midScrollOffset = v);
         this.midScrollBar.setThumbMinHeight(16);
         this.midScrollBar.setHoverExpandX(3);
+        this.midScrollBar.setAnimationId("anvil.scroll.sim");
     }
 
     @Override public Component getLabel() {

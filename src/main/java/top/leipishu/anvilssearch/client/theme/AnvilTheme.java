@@ -3,6 +3,7 @@ package top.leipishu.anvilssearch.client.theme;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiComponent;
+import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 
 /**
  * 全局视觉词典。
@@ -129,42 +130,73 @@ public final class AnvilTheme {
         GuiComponent.fill(ps, x + size - 1, y, x + size, y + size, border);
     }
 
+    // ============================================================
+    // ===== 按钮（float 版，供动画系统使用）=======================
+    // ============================================================
+
     /**
-     * 通用按钮：底 + 边框 + 居中文字 + active 底部金线。
-     * 用于内容区（筛选栏、收藏、槽位下拉等）。
+     * 通用按钮（float 版）：底 + 边框 + 居中文字 + active 底部金线。
+     *
+     * @param hoverT  0..1 之间的 hover 插值
+     * @param activeT 0..1 之间的 active 插值
      */
     public static void button(PoseStack ps, Font font, int x, int y, int w, int h,
-                              String label, boolean hover, boolean active) {
-        int bg = active ? BTN_BG_ACTIVE : (hover ? BTN_BG_HOVER : BTN_BG);
+                              String label, float hoverT, float activeT) {
+        int bg = ColorUtil.lerpARGB(BTN_BG, BTN_BG_HOVER, hoverT);
+        bg = ColorUtil.lerpARGB(bg, BTN_BG_ACTIVE, activeT);
         GuiComponent.fill(ps, x, y, x + w, y + h, bg);
         GuiComponent.fill(ps, x, y, x + w, y + 1, BTN_BORDER);
         GuiComponent.fill(ps, x, y + h - 1, x + w, y + h, BTN_BORDER);
         GuiComponent.fill(ps, x, y, x + 1, y + h, BTN_BORDER);
         GuiComponent.fill(ps, x + w - 1, y, x + w, y + h, BTN_BORDER);
-        if (active) {
-            GuiComponent.fill(ps, x + 1, y + h - 2, x + w - 1, y + h - 1, ACCENT);
+
+        if (activeT > 0.01f) {
+            GuiComponent.fill(ps, x + 1, y + h - 2, x + w - 1, y + h - 1,
+                    ColorUtil.withAlphaFactor(ACCENT, activeT));
         }
-        int textColor = active ? BTN_TEXT_ACTIVE : (hover ? BTN_TEXT_HOVER : BTN_TEXT);
+
+        int textColor = ColorUtil.lerpARGB(BTN_TEXT, BTN_TEXT_HOVER, hoverT);
+        textColor = ColorUtil.lerpARGB(textColor, BTN_TEXT_ACTIVE, activeT);
         int tw = font.width(label);
         font.draw(ps, label, x + (w - tw) / 2,
                 y + (h - font.lineHeight) / 2 + 1, textColor);
     }
 
+    /** 通用按钮（boolean 兼容版）。 */
+    public static void button(PoseStack ps, Font font, int x, int y, int w, int h,
+                              String label, boolean hover, boolean active) {
+        button(ps, font, x, y, w, h, label,
+                hover ? 1f : 0f, active ? 1f : 0f);
+    }
+
+    // ============================================================
+    // ===== Tab 栏按钮（float 版）================================
+    // ============================================================
+
     /**
-     * Tab 栏专用按钮：无边框，仅背景 + 文字 + active 底部 2px 金线。
-     * 视觉更干净，避免与内容区的 bordered 按钮混淆。
+     * Tab 栏专用按钮（float 版）：无边框，仅背景 + 文字。
+     *
+     * <p>不再自己画下边框——由 {@code AnvilPanelRenderer} 统一画滑动指示器，
+     * 与 Tinkers' Search 的 Tab 栏保持一致（1px 高金线）。
      */
     public static void tabButton(PoseStack ps, Font font, int x, int y, int w, int h,
-                                 String label, boolean hover, boolean active) {
-        int bg = active ? BTN_BG_ACTIVE : (hover ? BTN_BG_HOVER : BTN_BG);
+                                 String label, float hoverT, float activeT) {
+        int bg = ColorUtil.lerpARGB(BTN_BG, BTN_BG_HOVER, hoverT);
+        bg = ColorUtil.lerpARGB(bg, BTN_BG_ACTIVE, activeT);
         GuiComponent.fill(ps, x, y, x + w, y + h, bg);
-        if (active) {
-            GuiComponent.fill(ps, x, y + h - 2, x + w, y + h, ACCENT);
-        }
-        int textColor = active ? BTN_TEXT_ACTIVE : (hover ? BTN_TEXT_HOVER : BTN_TEXT);
+
+        int textColor = ColorUtil.lerpARGB(BTN_TEXT, BTN_TEXT_HOVER, hoverT);
+        textColor = ColorUtil.lerpARGB(textColor, BTN_TEXT_ACTIVE, activeT);
         int tw = font.width(label);
         font.draw(ps, label, x + (w - tw) / 2,
                 y + (h - font.lineHeight) / 2 + 1, textColor);
+    }
+
+    /** Tab 栏按钮（boolean 兼容版）。 */
+    public static void tabButton(PoseStack ps, Font font, int x, int y, int w, int h,
+                                 String label, boolean hover, boolean active) {
+        tabButton(ps, font, x, y, w, h, label,
+                hover ? 1f : 0f, active ? 1f : 0f);
     }
 
     public static int centeredTextY(int y, int h, Font font) {

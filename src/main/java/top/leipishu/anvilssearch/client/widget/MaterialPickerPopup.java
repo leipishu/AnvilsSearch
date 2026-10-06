@@ -52,10 +52,12 @@ public class MaterialPickerPopup {
         this.scrollBar.setOnOffsetChanged(v -> scrollOffset = v);
         this.scrollBar.setThumbMinHeight(12);
         this.scrollBar.setHoverExpandX(2);
+        this.scrollBar.setAnimationId("anvil.picker.scroll");
 
         this.searchBox.setHintText(new TranslatableComponent(
                 "gui.anvilssearch.picker.search_hint"));
         this.searchBox.setOnTextChanged(this::applyFilter);
+        this.searchBox.setAnimationId("anvil.picker.search");
     }
 
     public void setBounds(int x, int y, int w, int h) {

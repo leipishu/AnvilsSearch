@@ -1,72 +1,94 @@
 package top.leipishu.anvilssearch.client;
 
+import top.leipishu.anvilssearch.client.animation.controller.AnvilPanelAnimations;
+
 /**
  * 侧边栏动画。
- * 展开/收起和宽度过渡走两条独立进度，都是 350ms cubic ease-out。
+ *
+ * <p>内部状态只有两个"目标态"字段：{@code visible} 与 {@code targetWidth}。
+ * 动画在 {@link #startShow()} / {@link #startHide()} / {@link #setTargetWidth(int)}
+ * 中一次性触发；渲染时通过 {@link #getCurrentWidth()} / {@link #getAnimationOffset()}
+ * 纯读 {@code AnvilPanelAnimations} 的插值结果。
+ *
+ * <p>与 Tinkers' Search 的 {@code PanelAnimationManager} 模式一致——
+ * <b>打开面板时不会启动任何无用的动画</b>（宽度未变不播宽度动画）。
  */
 public final class AnvilPanelAnimation {
 
-    public static final int DURATION = 350;
     public static final int WIDTH_NORMAL = 220;
     public static final int WIDTH_WIDE   = 360;
 
-    private boolean slideAnimating;
-    private float   slideProgress = 0f;
-    private float   slideFrom, slideTo;
-    private long    slideStart;
+    /** 面板的目标可见状态。 */
+    private boolean visible = false;
 
-    private boolean widthAnimating;
-    private float   widthProgress = WIDTH_NORMAL;
-    private float   widthFrom, widthTo;
-    private long    widthStart;
+    /** 面板的目标宽度。 */
+    private int targetWidth = WIDTH_NORMAL;
 
-    public boolean isAnimating() { return slideAnimating || widthAnimating; }
-    public boolean isExpanded()  { return slideProgress >= 1f; }
+    // ============================================================
+    // ===== 状态查询 ==============================================
+    // ============================================================
 
-    public int getCurrentWidth() { return (int) widthProgress; }
-
-    public int getAnimationOffset() {
-        return -(int) (widthProgress * (1f - slideProgress));
+    public boolean isAnimating() {
+        return AnvilPanelAnimations.isAnimating();
     }
 
+    /**
+     * 面板是否完全展开（滑入进度到达 1.0）。
+     */
+    public boolean isExpanded() {
+        return AnvilPanelAnimations.getSlideProgress() >= 1f;
+    }
+
+    /**
+     * 面板当前宽度（浮点插值取整）。
+     */
+    public int getCurrentWidth() {
+        return (int) AnvilPanelAnimations.getPanelWidth(targetWidth);
+    }
+
+    /**
+     * 当前水平偏移（负值 = 向左滑出屏幕）。
+     *
+     * <p>公式与旧实现一致：{@code -(width * (1 - slideProgress))}。
+     */
+    public int getAnimationOffset() {
+        float wp = AnvilPanelAnimations.getPanelWidth(targetWidth);
+        float sp = AnvilPanelAnimations.getSlideProgress();
+        return -(int) (wp * (1f - sp));
+    }
+
+    /** 目标宽度（供外部读取，用于布局计算）。 */
+    public int getTargetWidth() {
+        return targetWidth;
+    }
+
+    // ============================================================
+    // ===== 控制 ==================================================
+    // ============================================================
+
     public void startShow() {
-        slideFrom = slideProgress;
-        slideTo   = 1f;
-        slideStart = System.currentTimeMillis();
-        slideAnimating = true;
+        if (visible) return;
+        visible = true;
+        AnvilPanelAnimations.startSlideAnimation(true);
     }
 
     public void startHide() {
-        slideFrom = slideProgress;
-        slideTo   = 0f;
-        slideStart = System.currentTimeMillis();
-        slideAnimating = true;
+        if (!visible) return;
+        visible = false;
+        AnvilPanelAnimations.startSlideAnimation(false);
     }
 
     public void setTargetWidth(int target) {
-        if (!widthAnimating && (int) widthProgress == target) return;
-        widthFrom = widthProgress;
-        widthTo   = target;
-        widthStart = System.currentTimeMillis();
-        widthAnimating = true;
+        int old = this.targetWidth;
+        this.targetWidth = target;
+        AnvilPanelAnimations.startWidthAnimation(old, target);
     }
 
+    /**
+     * @deprecated 动画由 Tinkers' Search 的 {@code onRenderTick} 统一驱动。
+     */
+    @Deprecated
     public void update() {
-        long now = System.currentTimeMillis();
-
-        if (slideAnimating) {
-            float t = Math.min(1f, (now - slideStart) / (float) DURATION);
-            slideProgress = slideFrom + (slideTo - slideFrom) * easeOutCubic(t);
-            if (t >= 1f) { slideProgress = slideTo; slideAnimating = false; }
-        }
-        if (widthAnimating) {
-            float t = Math.min(1f, (now - widthStart) / (float) DURATION);
-            widthProgress = widthFrom + (widthTo - widthFrom) * easeOutCubic(t);
-            if (t >= 1f) { widthProgress = widthTo; widthAnimating = false; }
-        }
-    }
-
-    private static float easeOutCubic(float t) {
-        return 1f - (float) Math.pow(1f - t, 3);
+        // no-op
     }
 }

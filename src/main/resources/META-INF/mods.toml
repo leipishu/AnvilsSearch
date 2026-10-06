@@ -54,7 +54,7 @@ side="BOTH"
 [[dependencies.anvilssearch]]
 modId="tinkerssearch"
 mandatory=true
-versionRange="[1.6,)"
+versionRange="[1.6.1,)"
 ordering="AFTER"
 side="BOTH"
 

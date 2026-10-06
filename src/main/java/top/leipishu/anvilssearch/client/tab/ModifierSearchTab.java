@@ -123,10 +123,12 @@ public class ModifierSearchTab implements AnvilTab {
         this.scrollBar.setOnOffsetChanged(v -> scrollOffset = v);
         this.scrollBar.setThumbMinHeight(16);
         this.scrollBar.setHoverExpandX(3);
+        this.scrollBar.setAnimationId("anvil.scroll.mod");
 
         this.searchBox.setHintText(new TranslatableComponent(
                 "gui.anvilssearch.modifier.search_hint"));
         this.searchBox.setOnTextChanged(this::applyFilter);
+        this.searchBox.setAnimationId("anvil.modsearch");
     }
 
     @Override public Component getLabel() {

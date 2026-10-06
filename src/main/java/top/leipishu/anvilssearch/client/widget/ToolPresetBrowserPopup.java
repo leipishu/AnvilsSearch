@@ -73,6 +73,7 @@ public class ToolPresetBrowserPopup {
         scrollBar.setOnOffsetChanged(v -> scrollOffset = v);
         scrollBar.setThumbMinHeight(12);
         scrollBar.setHoverExpandX(2);
+        scrollBar.setAnimationId("anvil.presets.scroll");
     }
 
     public void setBounds(int x, int y, int w, int h) {
