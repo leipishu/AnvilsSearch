@@ -13,6 +13,7 @@ import slimeknights.tconstruct.library.modifiers.ModifierEntry;
 import slimeknights.tconstruct.library.tools.nbt.StatsNBT;
 import slimeknights.tconstruct.library.tools.stat.IToolStat;
 import slimeknights.tconstruct.library.tools.stat.ToolStats;
+import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
 import top.leipishu.anvilssearch.data.material.MaterialDetail;
 import top.leipishu.anvilssearch.data.tool.ToolDefinitionIndex;
 import top.leipishu.anvilssearch.simulation.ToolPreviewRenderer;
@@ -230,9 +231,23 @@ public class ToolPreviewPanel {
                     headerHits.add(new HeaderHit(cx, cy, clipW - 4,
                             MaterialDetail.HEADER_H, i));
 
-                    List<Component> tip = d.render(ps, font, cx, cy,
-                            clipW - 4, mouseX, mouseY, expanded, true);
-                    if (tip != null) pendingTooltip = tip;
+                    // ★ 展开淡入
+                    float fadeT = AnvilWidgetAnimations.cardFade(
+                            "preview.card:" + i, expanded);
+
+                    if (fadeT > 0.01f) {
+                        RenderSystem.setShaderColor(1f, 1f, 1f, fadeT);
+                        try {
+                            List<Component> tip = d.render(ps, font, cx, cy,
+                                    clipW - 4, mouseX, mouseY, expanded, true);
+                            if (tip != null) pendingTooltip = tip;
+                        } finally {
+                            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                        }
+                    } else {
+                        cy += cardH + 4;
+                        continue;
+                    }
                     cy += cardH + 4;
                 }
             } else {

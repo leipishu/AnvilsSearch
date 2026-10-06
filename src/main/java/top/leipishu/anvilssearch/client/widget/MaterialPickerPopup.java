@@ -5,14 +5,14 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiComponent;
 import net.minecraft.network.chat.TranslatableComponent;
+import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
 import top.leipishu.anvilssearch.data.material.PartMaterialIndex;
+import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 import top.leipishu.tinkerssearch.client.gui.components.CardBackground;
 import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
-import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
-import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch.PinyinResult;
 
@@ -34,6 +34,9 @@ public class MaterialPickerPopup {
     private static final int SEARCH_H = 16;
     private static final int HEADER_H = SEARCH_H + 4;
 
+    /** 动画 key 前缀。 */
+    private static final String ANIM_KEY = "picker";
+
     private int x, y, w, h;
 
     private final List<PartMaterialIndex.Entry> allEntries;
@@ -45,6 +48,12 @@ public class MaterialPickerPopup {
     private int scrollOffset = 0;
     private int maxScrollOffset = 0;
     private final ScrollBar scrollBar = new ScrollBar();
+
+    /** ★ 关闭状态：true = 正在淡出，动画完成后调用方置 null。 */
+    private boolean closing = false;
+
+    /** ★ 关闭动画完成回调。 */
+    private Runnable onCloseFinished;
 
     public MaterialPickerPopup(List<PartMaterialIndex.Entry> entries, OnPick callback) {
         this.allEntries = new ArrayList<>(entries != null ? entries : new ArrayList<>());
@@ -60,6 +69,9 @@ public class MaterialPickerPopup {
                 "gui.anvilssearch.picker.search_hint"));
         this.searchBox.setOnTextChanged(this::applyFilter);
         this.searchBox.setAnimationId("anvil.picker.search");
+
+        // ★ 每次新建实例时重置 fade/scale，保证每次打开都有淡入
+        AnvilWidgetAnimations.resetPopupAnim(ANIM_KEY);
     }
 
     public void setBounds(int x, int y, int w, int h) {
@@ -77,6 +89,37 @@ public class MaterialPickerPopup {
 
     public boolean isSearchFocused() {
         return searchBox.isFocused();
+    }
+
+    // ============================================================
+    // ===== 关闭动画 ==============================================
+    // ============================================================
+
+    /**
+     * 请求关闭：启动淡出动画，动画完成后触发 {@code onFinished}。
+     */
+    public void startClose(Runnable onFinished) {
+        if (closing) return;
+        closing = true;
+        this.onCloseFinished = onFinished;
+    }
+
+    /** 是否正在关闭。 */
+    public boolean isClosing() {
+        return closing;
+    }
+
+    /**
+     * 每帧检查关闭动画是否完成；完成则触发回调。
+     */
+    public void checkCloseFinished() {
+        if (!closing) return;
+        float alpha = AnvilWidgetAnimations.popupFade(ANIM_KEY, false);
+        if (alpha <= 0.01f) {
+            Runnable cb = onCloseFinished;
+            onCloseFinished = null;
+            if (cb != null) cb.run();
+        }
     }
 
     // ============================================================
@@ -113,67 +156,88 @@ public class MaterialPickerPopup {
     // ============================================================
 
     public void render(PoseStack ps, Font font, int mouseX, int mouseY) {
-        GuiComponent.fill(ps, x, y, x + w, y + h, 0xF0202020);
-        CardBackground.draw(ps, x, y, w, h, 0xF0202020, 0xFF888888);
+        boolean visible = !closing;
+        float alpha = AnvilWidgetAnimations.popupFade(ANIM_KEY, visible);
+        float scale = AnvilWidgetAnimations.popupScale(ANIM_KEY, visible);
 
-        int sbX = x + PAD;
-        int sbY = y + PAD;
-        int sbW = w - PAD * 2;
-        searchBox.setBounds(sbX, sbY, sbW, SEARCH_H);
-        searchBox.render(ps, mouseX, mouseY, font);
+        if (alpha <= 0.01f) return;
 
-        int areaX = x + PAD;
-        int areaY = y + PAD + HEADER_H;
-        int areaW = w - PAD * 2 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
-        int areaH = h - PAD * 2 - HEADER_H;
-        if (areaH <= 0) return;
+        // 以弹窗中心为原点缩放
+        float cx = x + w / 2f;
+        float cy = y + h / 2f;
+        ps.pushPose();
+        ps.translate(cx, cy, 0);
+        ps.scale(scale, scale, 1f);
+        ps.translate(-cx, -cy, 0);
 
-        int totalH = entries.size() * ROW_H;
-        maxScrollOffset = Math.max(0, totalH - areaH);
-        if (scrollOffset > maxScrollOffset) scrollOffset = maxScrollOffset;
-
-        boolean scissorOk = ScissorHelper.enableScissor(areaX, areaY, areaW, areaH);
+        RenderSystem.setShaderColor(1f, 1f, 1f, alpha);
         try {
-            if (scissorOk) RenderSystem.disableDepthTest();
+            GuiComponent.fill(ps, x, y, x + w, y + h, 0xF0202020);
+            CardBackground.draw(ps, x, y, w, h, 0xF0202020, 0xFF888888);
 
-            if (entries.isEmpty()) {
-                font.draw(ps, "\u00A77" + new TranslatableComponent(
-                                "gui.anvilssearch.picker.empty").getString(),
-                        areaX + 4, areaY + 4, 0x666666);
-            } else {
-                int rowY = areaY - scrollOffset;
-                for (PartMaterialIndex.Entry e : entries) {
-                    if (rowY + ROW_H >= areaY && rowY <= areaY + areaH) {
-                        boolean hover = mouseX >= areaX && mouseX <= areaX + areaW
-                                && mouseY >= rowY && mouseY <= rowY + ROW_H;
+            int sbX = x + PAD;
+            int sbY = y + PAD;
+            int sbW = w - PAD * 2;
+            searchBox.setBounds(sbX, sbY, sbW, SEARCH_H);
+            searchBox.render(ps, mouseX, mouseY, font);
 
-                        String rowKey = e.id != null ? e.id.toString()
-                                : String.valueOf(e.hashCode());
-                        float hoverT = AnvilWidgetAnimations.rowHover("picker:" + rowKey, hover);
+            int areaX = x + PAD;
+            int areaY = y + PAD + HEADER_H;
+            int areaW = w - PAD * 2 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
+            int areaH = h - PAD * 2 - HEADER_H;
+            if (areaH <= 0) return;
 
-                        if (hoverT > 0.01f) {
-                            GuiComponent.fill(ps, areaX, rowY, areaX + areaW,
-                                    rowY + ROW_H,
-                                    ColorUtil.withAlphaFactor(0x33FFFFFF, hoverT));
+            int totalH = entries.size() * ROW_H;
+            maxScrollOffset = Math.max(0, totalH - areaH);
+            if (scrollOffset > maxScrollOffset) scrollOffset = maxScrollOffset;
+
+            boolean scissorOk = ScissorHelper.enableScissor(areaX, areaY, areaW, areaH);
+            try {
+                if (scissorOk) RenderSystem.disableDepthTest();
+
+                if (entries.isEmpty()) {
+                    font.draw(ps, "\u00A77" + new TranslatableComponent(
+                                    "gui.anvilssearch.picker.empty").getString(),
+                            areaX + 4, areaY + 4, 0x666666);
+                } else {
+                    int rowY = areaY - scrollOffset;
+                    for (PartMaterialIndex.Entry e : entries) {
+                        if (rowY + ROW_H >= areaY && rowY <= areaY + areaH) {
+                            boolean hover = mouseX >= areaX && mouseX <= areaX + areaW
+                                    && mouseY >= rowY && mouseY <= rowY + ROW_H;
+
+                            String rowKey = e.id != null ? e.id.toString()
+                                    : String.valueOf(e.hashCode());
+                            float hoverT = AnvilWidgetAnimations.rowHover(
+                                    "picker:" + rowKey, hover);
+
+                            if (hoverT > 0.01f) {
+                                GuiComponent.fill(ps, areaX, rowY, areaX + areaW,
+                                        rowY + ROW_H,
+                                        ColorUtil.withAlphaFactor(0x33FFFFFF, hoverT));
+                            }
+
+                            int textColor = ColorUtil.lerpARGB(0xFFCCCCCC, 0xFFFFFFFF, hoverT);
+                            font.draw(ps, e.getDisplayName(), areaX + 4, rowY + 3, textColor);
                         }
-
-                        int textColor = ColorUtil.lerpARGB(0xFFCCCCCC, 0xFFFFFFFF, hoverT);
-                        font.draw(ps, e.getDisplayName(), areaX + 4, rowY + 3, textColor);
+                        rowY += ROW_H;
                     }
-                    rowY += ROW_H;
+                }
+            } finally {
+                if (scissorOk) {
+                    ScissorHelper.disableScissor();
+                    RenderSystem.enableDepthTest();
                 }
             }
-        } finally {
-            if (scissorOk) {
-                ScissorHelper.disableScissor();
-                RenderSystem.enableDepthTest();
-            }
-        }
 
-        scrollBar.setBounds(x + w - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING,
-                areaY, SCROLL_BAR_WIDTH, areaH);
-        scrollBar.setRange(scrollOffset, maxScrollOffset);
-        scrollBar.render(ps, mouseX, mouseY);
+            scrollBar.setBounds(x + w - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING,
+                    areaY, SCROLL_BAR_WIDTH, areaH);
+            scrollBar.setRange(scrollOffset, maxScrollOffset);
+            scrollBar.render(ps, mouseX, mouseY);
+        } finally {
+            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+            ps.popPose();
+        }
     }
 
     // ============================================================
@@ -181,6 +245,7 @@ public class MaterialPickerPopup {
     // ============================================================
 
     public boolean mouseClicked(double mx, double my, int button) {
+        if (closing) return true;
         if (scrollBar.tryBeginDrag(mx, my)) return true;
         if (!isPointInside(mx, my)) return false;
 
@@ -207,6 +272,7 @@ public class MaterialPickerPopup {
     }
 
     public boolean mouseScrolled(double mx, double my, double delta) {
+        if (closing) return false;
         if (maxScrollOffset <= 0) return false;
         int no = scrollOffset - (int) (delta * 12);
         no = Math.max(0, Math.min(no, maxScrollOffset));

@@ -7,15 +7,16 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiComponent;
 import net.minecraft.network.chat.TranslatableComponent;
 import net.minecraft.world.item.ItemStack;
+import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
 import top.leipishu.anvilssearch.client.theme.AnvilTheme;
 import top.leipishu.anvilssearch.data.tool.ToolDefinitionIndex;
 import top.leipishu.anvilssearch.simulation.ToolPreset;
 import top.leipishu.anvilssearch.simulation.ToolPresetStore;
 import top.leipishu.anvilssearch.simulation.ToolStatsCalculator;
+import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 import top.leipishu.tinkerssearch.client.gui.components.CardBackground;
 import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
-import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -46,6 +47,9 @@ public class ToolPresetBrowserPopup {
     /** 分割线到列表顶部的间距（越小列表越靠上）。 */
     private static final int LIST_TOP_GAP    = 4;
 
+    /** 动画 key 前缀。 */
+    private static final String ANIM_KEY     = "presets";
+
     private int x, y, w, h;
 
     private final List<ToolPreset>  presets;
@@ -62,6 +66,12 @@ public class ToolPresetBrowserPopup {
     /** 缓存的预览栈（key = toolId + "@" + savedAt）。 */
     private final Map<String, ItemStack> iconCache = new HashMap<>();
 
+    /** ★ 关闭状态：true = 正在淡出，动画完成后由调用方置 null。 */
+    private boolean closing = false;
+
+    /** ★ 关闭动画完成回调。 */
+    private Runnable onCloseFinished;
+
     public ToolPresetBrowserPopup(List<ToolPreset> presets,
                                   OnPickPreset onPick,
                                   OnClipboardImport onClipboard,
@@ -75,6 +85,9 @@ public class ToolPresetBrowserPopup {
         scrollBar.setThumbMinHeight(12);
         scrollBar.setHoverExpandX(2);
         scrollBar.setAnimationId("anvil.presets.scroll");
+
+        // ★ 每次新建实例时重置 fade/scale，保证每次打开都有淡入
+        AnvilWidgetAnimations.resetPopupAnim(ANIM_KEY);
     }
 
     public void setBounds(int x, int y, int w, int h) {
@@ -86,20 +99,41 @@ public class ToolPresetBrowserPopup {
     }
 
     // ============================================================
+    // ===== 关闭动画 ==============================================
+    // ============================================================
+
+    public void startClose(Runnable onFinished) {
+        if (closing) return;
+        closing = true;
+        this.onCloseFinished = onFinished;
+    }
+
+    public boolean isClosing() {
+        return closing;
+    }
+
+    public void checkCloseFinished() {
+        if (!closing) return;
+        float alpha = AnvilWidgetAnimations.popupFade(ANIM_KEY, false);
+        if (alpha <= 0.01f) {
+            Runnable cb = onCloseFinished;
+            onCloseFinished = null;
+            if (cb != null) cb.run();
+        }
+    }
+
+    // ============================================================
     // ===== 布局辅助 =============================================
     // ============================================================
 
-    /** 列表顶部 Y 坐标（分割线下方 LIST_TOP_GAP 像素）。 */
     private int listTopY() {
         return btnY + BTN_H + LIST_TOP_GAP;
     }
 
-    /** 列表可用高度。 */
     private int listAreaH() {
         return (y + h - PAD) - listTopY();
     }
 
-    /** 列表可用宽度（去掉滚动条）。 */
     private int listAreaW() {
         return w - PAD * 2 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
     }
@@ -109,81 +143,96 @@ public class ToolPresetBrowserPopup {
     // ============================================================
 
     public void render(PoseStack ps, Font font, int mouseX, int mouseY) {
-        GuiComponent.fill(ps, x, y, x + w, y + h, 0xF01A1A1A);
-        CardBackground.draw(ps, x, y, w, h, 0xF01A1A1A, AnvilTheme.SECTION_BORDER);
+        boolean visible = !closing;
+        float alpha = AnvilWidgetAnimations.popupFade(ANIM_KEY, visible);
+        float scale = AnvilWidgetAnimations.popupScale(ANIM_KEY, visible);
 
-        // 标题
-        font.draw(ps, new TranslatableComponent(
-                        "gui.anvilssearch.sim.browser.title").getString(),
-                x + PAD, y + PAD + 1, AnvilTheme.ACCENT);
+        if (alpha <= 0.01f) return;
 
-        // 顶部按钮
-        btnY = y + PAD + 15;
-        clipboardBtnX = x + PAD;
-        fileBtnX = clipboardBtnX + BTN_W + BTN_GAP;
+        float cx = x + w / 2f;
+        float cy = y + h / 2f;
+        ps.pushPose();
+        ps.translate(cx, cy, 0);
+        ps.scale(scale, scale, 1f);
+        ps.translate(-cx, -cy, 0);
 
-        boolean h1 = mouseX >= clipboardBtnX && mouseX <= clipboardBtnX + BTN_W
-                && mouseY >= btnY && mouseY <= btnY + BTN_H;
-        boolean h2 = mouseX >= fileBtnX && mouseX <= fileBtnX + BTN_W
-                && mouseY >= btnY && mouseY <= btnY + BTN_H;
-
-        float h1T = AnvilWidgetAnimations.buttonHover("presets.clipboard", h1);
-        float h2T = AnvilWidgetAnimations.buttonHover("presets.file", h2);
-
-        AnvilTheme.button(ps, font, clipboardBtnX, btnY, BTN_W, BTN_H,
-                new TranslatableComponent(
-                        "gui.anvilssearch.sim.browser.from_clipboard").getString(),
-                h1T, 0f);
-        AnvilTheme.button(ps, font, fileBtnX, btnY, BTN_W, BTN_H,
-                new TranslatableComponent(
-                        "gui.anvilssearch.sim.browser.from_file").getString(),
-                h2T, 0f);
-
-        // 分割线（紧跟按钮下方 3px）
-        int dividerY = btnY + BTN_H + 3;
-        GuiComponent.fill(ps, x + PAD, dividerY,
-                x + w - PAD, dividerY + 1, AnvilTheme.SECTION_BORDER);
-
-        // 列表区
-        int listX = x + PAD;
-        int listY = listTopY();      // ★ 紧贴分割线
-        int listW = listAreaW();
-        int listH = listAreaH();
-        if (listH <= 0 || listW <= 0) return;
-
-        int totalH = presets.size() * ROW_H;
-        maxScrollOffset = Math.max(0, totalH - listH);
-        if (scrollOffset > maxScrollOffset) scrollOffset = maxScrollOffset;
-
-        boolean scissorOk = ScissorHelper.enableScissor(listX, listY, listW, listH);
+        RenderSystem.setShaderColor(1f, 1f, 1f, alpha);
         try {
-            if (scissorOk) RenderSystem.disableDepthTest();
+            GuiComponent.fill(ps, x, y, x + w, y + h, 0xF01A1A1A);
+            CardBackground.draw(ps, x, y, w, h, 0xF01A1A1A, AnvilTheme.SECTION_BORDER);
 
-            if (presets.isEmpty()) {
-                font.draw(ps, new TranslatableComponent(
-                                "gui.anvilssearch.sim.browser.empty").getString(),
-                        listX + 4, listY + 2, AnvilTheme.TEXT_DIM);
-            } else {
-                int rowY = listY - scrollOffset;
-                for (ToolPreset p : presets) {
-                    if (rowY + ROW_H >= listY && rowY <= listY + listH) {
-                        drawRow(ps, font, listX, rowY, listW, p, mouseX, mouseY);
+            font.draw(ps, new TranslatableComponent(
+                            "gui.anvilssearch.sim.browser.title").getString(),
+                    x + PAD, y + PAD + 1, AnvilTheme.ACCENT);
+
+            btnY = y + PAD + 15;
+            clipboardBtnX = x + PAD;
+            fileBtnX = clipboardBtnX + BTN_W + BTN_GAP;
+
+            boolean h1 = mouseX >= clipboardBtnX && mouseX <= clipboardBtnX + BTN_W
+                    && mouseY >= btnY && mouseY <= btnY + BTN_H;
+            boolean h2 = mouseX >= fileBtnX && mouseX <= fileBtnX + BTN_W
+                    && mouseY >= btnY && mouseY <= btnY + BTN_H;
+
+            float h1T = AnvilWidgetAnimations.buttonHover("presets.clipboard", h1);
+            float h2T = AnvilWidgetAnimations.buttonHover("presets.file", h2);
+
+            AnvilTheme.button(ps, font, clipboardBtnX, btnY, BTN_W, BTN_H,
+                    new TranslatableComponent(
+                            "gui.anvilssearch.sim.browser.from_clipboard").getString(),
+                    h1T, 0f);
+            AnvilTheme.button(ps, font, fileBtnX, btnY, BTN_W, BTN_H,
+                    new TranslatableComponent(
+                            "gui.anvilssearch.sim.browser.from_file").getString(),
+                    h2T, 0f);
+
+            int dividerY = btnY + BTN_H + 3;
+            GuiComponent.fill(ps, x + PAD, dividerY,
+                    x + w - PAD, dividerY + 1, AnvilTheme.SECTION_BORDER);
+
+            int listX = x + PAD;
+            int listY = listTopY();
+            int listW = listAreaW();
+            int listH = listAreaH();
+            if (listH <= 0 || listW <= 0) return;
+
+            int totalH = presets.size() * ROW_H;
+            maxScrollOffset = Math.max(0, totalH - listH);
+            if (scrollOffset > maxScrollOffset) scrollOffset = maxScrollOffset;
+
+            boolean scissorOk = ScissorHelper.enableScissor(listX, listY, listW, listH);
+            try {
+                if (scissorOk) RenderSystem.disableDepthTest();
+
+                if (presets.isEmpty()) {
+                    font.draw(ps, new TranslatableComponent(
+                                    "gui.anvilssearch.sim.browser.empty").getString(),
+                            listX + 4, listY + 2, AnvilTheme.TEXT_DIM);
+                } else {
+                    int rowY = listY - scrollOffset;
+                    for (ToolPreset p : presets) {
+                        if (rowY + ROW_H >= listY && rowY <= listY + listH) {
+                            drawRow(ps, font, listX, rowY, listW, p, mouseX, mouseY);
+                        }
+                        rowY += ROW_H;
                     }
-                    rowY += ROW_H;
+                }
+            } finally {
+                if (scissorOk) {
+                    ScissorHelper.disableScissor();
+                    RenderSystem.enableDepthTest();
                 }
             }
-        } finally {
-            if (scissorOk) {
-                ScissorHelper.disableScissor();
-                RenderSystem.enableDepthTest();
-            }
-        }
 
-        if (maxScrollOffset > 0) {
-            scrollBar.setBounds(x + w - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING,
-                    listY, SCROLL_BAR_WIDTH, listH);
-            scrollBar.setRange(scrollOffset, maxScrollOffset);
-            scrollBar.render(ps, mouseX, mouseY);
+            if (maxScrollOffset > 0) {
+                scrollBar.setBounds(x + w - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING,
+                        listY, SCROLL_BAR_WIDTH, listH);
+                scrollBar.setRange(scrollOffset, maxScrollOffset);
+                scrollBar.render(ps, mouseX, mouseY);
+            }
+        } finally {
+            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+            ps.popPose();
         }
     }
 
@@ -198,7 +247,6 @@ public class ToolPresetBrowserPopup {
 
         ToolDefinitionIndex.Entry def = findDef(p.toolId);
 
-        // 图标：按保存的材料渲染
         ItemStack icon = buildPreviewStack(p, def);
         if (icon != null && !icon.isEmpty()) {
             try {
@@ -219,7 +267,6 @@ public class ToolPresetBrowserPopup {
             sub += " · " + sdf.format(new Date(p.savedAt));
         } catch (Throwable ignored) {}
 
-        // 文字区域（给删除按钮留空）
         int textMaxW = w - (6 + ICON_SIZE + 8) - (DELETE_BTN_SIZE + DELETE_BTN_PAD * 2);
         String nameDisplay = font.width(name) > textMaxW
                 ? font.plainSubstrByWidth(name, textMaxW - 4) + "..."
@@ -228,13 +275,14 @@ public class ToolPresetBrowserPopup {
                 ? font.plainSubstrByWidth(sub, textMaxW - 4) + "..."
                 : sub;
 
+        int nameColor = ColorUtil.lerpARGB(
+                AnvilTheme.TEXT_SECONDARY, AnvilTheme.TEXT_PRIMARY, hoverT);
+
         int tx = x + 6 + ICON_SIZE + 8;
-        font.draw(ps, nameDisplay, tx, y + 4,
-                hover ? AnvilTheme.TEXT_PRIMARY : AnvilTheme.TEXT_SECONDARY);
+        font.draw(ps, nameDisplay, tx, y + 4, nameColor);
         font.draw(ps, "\u00A78" + subDisplay, tx, y + 4 + font.lineHeight + 2,
                 AnvilTheme.TEXT_DIM);
 
-        // 删除按钮
         int delX = x + w - DELETE_BTN_SIZE - DELETE_BTN_PAD;
         int delY = y + (ROW_H - DELETE_BTN_SIZE) / 2;
         boolean delHover = mouseX >= delX && mouseX <= delX + DELETE_BTN_SIZE
@@ -252,7 +300,6 @@ public class ToolPresetBrowserPopup {
                 delHover ? 0xFFFF5555 : AnvilTheme.TEXT_MUTED);
     }
 
-    /** 用保存的材料构建带材质的预览栈（带缓存）。 */
     private ItemStack buildPreviewStack(ToolPreset preset,
                                         ToolDefinitionIndex.Entry def) {
         if (preset == null) return ItemStack.EMPTY;
@@ -299,10 +346,10 @@ public class ToolPresetBrowserPopup {
     // ============================================================
 
     public boolean mouseClicked(double mx, double my, int button) {
+        if (closing) return true;
         if (scrollBar.tryBeginDrag(mx, my)) return true;
         if (!isPointInside(mx, my)) return false;
 
-        // 顶部按钮
         if (my >= btnY && my <= btnY + BTN_H) {
             if (mx >= clipboardBtnX && mx <= clipboardBtnX + BTN_W) {
                 if (onClipboard != null) onClipboard.onImport();
@@ -314,7 +361,6 @@ public class ToolPresetBrowserPopup {
             }
         }
 
-        // 列表区（★ 与 render 相同的 listY 计算）
         int listX = x + PAD;
         int listY = listTopY();
         int listW = listAreaW();
@@ -325,7 +371,6 @@ public class ToolPresetBrowserPopup {
             ToolPreset p = presets.get(i);
 
             if (my >= rowY && my <= rowY + ROW_H) {
-                // 删除按钮优先
                 int delX = listX + listW - DELETE_BTN_SIZE - DELETE_BTN_PAD;
                 int delY = rowY + (ROW_H - DELETE_BTN_SIZE) / 2;
                 if (mx >= delX && mx <= delX + DELETE_BTN_SIZE
@@ -334,7 +379,6 @@ public class ToolPresetBrowserPopup {
                     return true;
                 }
 
-                // 点击行 → 应用预设
                 if (onPick != null) onPick.onPick(p);
                 return true;
             }
@@ -355,6 +399,7 @@ public class ToolPresetBrowserPopup {
     }
 
     public boolean mouseScrolled(double mx, double my, double delta) {
+        if (closing) return false;
         if (maxScrollOffset <= 0) return false;
         int no = scrollOffset - (int) (delta * 12);
         no = Math.max(0, Math.min(no, maxScrollOffset));

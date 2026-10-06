@@ -28,8 +28,8 @@ public final class AnvilWidgetAnimations {
     private static final float BUTTON_HOVER_TAU = 70f;
     private static final float SLOT_STATE_TAU   = 90f;
     private static final float SLOT_HOVER_TAU   = 70f;
-    private static final float POPUP_FADE_TAU   = 90f;
-    private static final float POPUP_SCALE_TAU  = 90f;
+    private static final float POPUP_FADE_TAU   = 45f;
+    private static final float POPUP_SCALE_TAU  = 45f;
     private static final float FEEDBACK_TAU     = 150f;
 
     // ============================================================
@@ -188,6 +188,22 @@ public final class AnvilWidgetAnimations {
                 AnvilAnimations.popupScale(key), 0.92f, POPUP_SCALE_TAU);
         a.setTarget(visible ? 1f : 0.92f);
         return a.getValue();
+    }
+
+    /**
+     * 把 Popup 的 fade / scale 动画立刻重置为"隐藏态"。
+     *
+     * <p>每次新建 Popup 实例时调用一次，保证**每次打开都有淡入**——
+     * 即使上次关闭路径没有走 {@code startClose}（导致 Animator settled 在 1.0）。
+     */
+    public static void resetPopupAnim(String key) {
+        Animator fadeA = AnimationManager.get().getAnimator(
+                AnvilAnimations.popupFade(key));
+        if (fadeA != null) fadeA.snap(0f);
+
+        Animator scaleA = AnimationManager.get().getAnimator(
+                AnvilAnimations.popupScale(key));
+        if (scaleA != null) scaleA.snap(0.92f);
     }
 
     // ============================================================

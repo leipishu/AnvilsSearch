@@ -616,12 +616,25 @@ public class ModifierSearchTab implements AnvilTab {
                 rowY += ROW_H;
 
                 if (expanded) {
-                    for (int i = 0; i < e.levels.size(); i++) {
-                        ModifierIndex.LevelInfo li = e.levels.get(i);
-                        drawSubRow(ps, font, innerX, rowY, clipW, e, li,
-                                selected == e && selectedIndex == i,
-                                mouseX, mouseY);
-                        rowY += SUB_ROW_H;
+                    String expandKey = e.id != null ? e.id : String.valueOf(e.hashCode());
+                    float fadeT = AnvilWidgetAnimations.cardFade("mod.expand:" + expandKey, true);
+
+                    if (fadeT > 0.01f) {
+                        RenderSystem.setShaderColor(1f, 1f, 1f, fadeT);
+                        try {
+                            for (int i = 0; i < e.levels.size(); i++) {
+                                ModifierIndex.LevelInfo li = e.levels.get(i);
+                                drawSubRow(ps, font, innerX, rowY, clipW, e, li,
+                                        selected == e && selectedIndex == i,
+                                        mouseX, mouseY);
+                                rowY += SUB_ROW_H;
+                            }
+                        } finally {
+                            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                        }
+                    } else {
+                        // 内容完全透明：仍需推进 rowY，保证滚动布局一致
+                        rowY += e.levels.size() * SUB_ROW_H;
                     }
                 }
             }
@@ -737,9 +750,26 @@ public class ModifierSearchTab implements AnvilTab {
         int starX = x + 3;
         boolean starHover = mouseX >= starX - 1 && mouseX <= starX + STAR_W + 1
                 && mouseY >= y && mouseY <= y + ROW_H;
-        font.draw(ps, star, starX, textY,
-                fav ? AnvilTheme.ACCENT
-                        : (starHover ? AnvilTheme.TEXT_MUTED : AnvilTheme.TEXT_DIM));
+        int starColor = fav ? AnvilTheme.ACCENT
+                : (starHover ? AnvilTheme.TEXT_MUTED : AnvilTheme.TEXT_DIM);
+
+        // ★ 星标脉冲缩放
+        String starKey = e.id != null ? e.id : String.valueOf(e.hashCode());
+        float starScale = AnvilWidgetAnimations.starScale(starKey);
+        boolean applyStarScale = Math.abs(starScale - 1f) > 0.005f;
+
+        if (applyStarScale) {
+            float scx = starX + STAR_W / 2f;
+            float scy = y + ROW_H / 2f;
+            ps.pushPose();
+            ps.translate(scx, scy, 0);
+            ps.scale(starScale, starScale, 1f);
+            ps.translate(-scx, -scy, 0);
+            font.draw(ps, star, starX, textY, starColor);
+            ps.popPose();
+        } else {
+            font.draw(ps, star, starX, textY, starColor);
+        }
 
         String right = "";
         int rightW = 0;
@@ -1389,6 +1419,9 @@ public class ModifierSearchTab implements AnvilTab {
                     int starX = leftListX + 3;
                     if (mx >= starX - 2 && mx <= starX + STAR_W + 2) {
                         FavoritesStore.toggle(e.id);
+                        // ★ 触发星标脉冲
+                        AnvilWidgetAnimations.triggerStarPulse(
+                                e.id != null ? e.id : String.valueOf(e.hashCode()));
                         if (favoritesOnly) applyFilter(panel.getSearchKeyword());
                         return true;
                     }

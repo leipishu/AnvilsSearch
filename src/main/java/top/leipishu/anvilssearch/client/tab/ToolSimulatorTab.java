@@ -18,6 +18,7 @@ import top.leipishu.anvilssearch.client.AnvilPanelLayout;
 import top.leipishu.anvilssearch.client.AnvilSidebarPanel;
 import top.leipishu.anvilssearch.client.AnvilTab;
 import top.leipishu.anvilssearch.client.SystemFileDialogs;
+import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
 import top.leipishu.anvilssearch.client.theme.AnvilTheme;
 import top.leipishu.anvilssearch.client.widget.MaterialPickerPopup;
 import top.leipishu.anvilssearch.client.widget.PartSlotWidget;
@@ -33,7 +34,6 @@ import top.leipishu.anvilssearch.simulation.ToolPresetCodec;
 import top.leipishu.anvilssearch.simulation.ToolPresetStore;
 import top.leipishu.anvilssearch.simulation.ToolSimulationModel;
 import top.leipishu.anvilssearch.simulation.ToolStatsCalculator;
-import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
 import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
 
@@ -153,8 +153,13 @@ public class ToolSimulatorTab implements AnvilTab {
         int areaTop = toolbarTop + TOOLBAR_H + TOOLBAR_GAP;
         int areaH   = (py + contentBottom) - areaTop;
         if (areaH < 20) {
-            if (presetPopup != null) presetPopup.render(ps, font, mouseX, mouseY);
-            else if (popup != null) popup.render(ps, font, mouseX, mouseY);
+            if (presetPopup != null) {
+                presetPopup.render(ps, font, mouseX, mouseY);
+                presetPopup.checkCloseFinished();
+            } else if (popup != null) {
+                popup.render(ps, font, mouseX, mouseY);
+                popup.checkCloseFinished();
+            }
             return;
         }
 
@@ -203,8 +208,14 @@ public class ToolSimulatorTab implements AnvilTab {
             panel.setPendingTooltip(tip);
         }
 
-        if (popup != null) popup.render(ps, font, mouseX, mouseY);
-        if (presetPopup != null) presetPopup.render(ps, font, mouseX, mouseY);
+        if (popup != null) {
+            popup.render(ps, font, mouseX, mouseY);
+            popup.checkCloseFinished();
+        }
+        if (presetPopup != null) {
+            presetPopup.render(ps, font, mouseX, mouseY);
+            presetPopup.checkCloseFinished();
+        }
     }
 
     private static void drawColSection(PoseStack ps, Font font,
@@ -235,7 +246,6 @@ public class ToolSimulatorTab implements AnvilTab {
         boolean h2 = inRect(mouseX, mouseY, toolbarExportX, y, TOOLBAR_BTN_W, TOOLBAR_H);
         boolean h3 = inRect(mouseX, mouseY, toolbarImportX, y, TOOLBAR_BTN_W, TOOLBAR_H);
 
-        // ★ 保存
         float h1T = AnvilWidgetAnimations.buttonHover("sim.save", canSave && h1);
         AnvilTheme.button(ps, font, toolbarSaveX, y, TOOLBAR_BTN_W, TOOLBAR_H,
                 new TranslatableComponent("gui.anvilssearch.sim.save").getString(),
@@ -246,7 +256,6 @@ public class ToolSimulatorTab implements AnvilTab {
                     : "gui.anvilssearch.sim.export.incomplete");
         }
 
-        // ★ 导出
         float h2T = AnvilWidgetAnimations.buttonHover("sim.export", canSave && h2);
         AnvilTheme.button(ps, font, toolbarExportX, y, TOOLBAR_BTN_W, TOOLBAR_H,
                 new TranslatableComponent("gui.anvilssearch.sim.export").getString(),
@@ -257,7 +266,6 @@ public class ToolSimulatorTab implements AnvilTab {
                     : "gui.anvilssearch.sim.export.incomplete");
         }
 
-        // ★ 导入
         float h3T = AnvilWidgetAnimations.buttonHover("sim.import", h3);
         AnvilTheme.button(ps, font, toolbarImportX, y, TOOLBAR_BTN_W, TOOLBAR_H,
                 new TranslatableComponent("gui.anvilssearch.sim.import").getString(),
@@ -290,14 +298,10 @@ public class ToolSimulatorTab implements AnvilTab {
     // ===== 保存 / 导出 / 导入 ===================================
     // ============================================================
 
-    /**
-     * 构建当前预设。
-     * ★ 若工具未选或部件未填满，返回 null。
-     */
     private ToolPreset buildCurrentPreset() {
         ToolDefinition def = model.getSelectedTool();
         if (def == null || def.getId() == null) return null;
-        if (!model.isComplete()) return null;   // 部件不全
+        if (!model.isComplete()) return null;
 
         Map<Integer, MaterialId> mats = new LinkedHashMap<>();
         for (int i = 0; i < model.getSlotCount(); i++) {
@@ -307,7 +311,6 @@ public class ToolSimulatorTab implements AnvilTab {
         return new ToolPreset(def.getId().toString(), mats, System.currentTimeMillis());
     }
 
-    /** 判断当前是否可以保存/导出。 */
     private boolean canExportOrSave() {
         return model.getSelectedTool() != null && model.isComplete();
     }
@@ -359,7 +362,13 @@ public class ToolSimulatorTab implements AnvilTab {
         List<ToolPreset> list = ToolPresetStore.listAll();
         presetPopup = new ToolPresetBrowserPopup(
                 list,
-                p -> { applyPreset(p); presetPopup = null; },
+                p -> {
+                    applyPreset(p);
+                    // ★ 走 startClose，让淡出动画播放
+                    if (presetPopup != null) {
+                        presetPopup.startClose(() -> presetPopup = null);
+                    }
+                },
                 this::doImportClipboard,
                 this::doImportFile);
         int pxAbs = panel.getPanelX() + panel.getAnimationOffset();
@@ -428,7 +437,10 @@ public class ToolSimulatorTab implements AnvilTab {
         }
 
         rebuildSlotsIfNeeded();
-        presetPopup = null;
+        // ★ 走 startClose
+        if (presetPopup != null) {
+            presetPopup.startClose(() -> presetPopup = null);
+        }
         setFeedback(new TranslatableComponent("gui.anvilssearch.sim.import.ok"));
     }
 
@@ -523,16 +535,16 @@ public class ToolSimulatorTab implements AnvilTab {
             if (presetPopup.isPointInside(mx, my)) {
                 presetPopup.mouseClicked(mx, my, button);
                 return true;
-            } else {
-                presetPopup = null;
+            } else if (!presetPopup.isClosing()) {
+                presetPopup.startClose(() -> presetPopup = null);
             }
         }
         if (popup != null) {
             if (popup.isPointInside(mx, my)) {
                 popup.mouseClicked(mx, my, button);
                 return true;
-            } else {
-                popup = null;
+            } else if (!popup.isClosing()) {
+                popup.startClose(() -> popup = null);
             }
         }
 
@@ -631,7 +643,10 @@ public class ToolSimulatorTab implements AnvilTab {
         popup = new MaterialPickerPopup(entries, e -> {
             widget.setMaterialName(e.getDisplayName());
             model.setSelection(idx, e.id);
-            popup = null;
+            // ★ 走 startClose，让淡出动画播放
+            if (popup != null) {
+                popup.startClose(() -> popup = null);
+            }
             generateCard(idx);
         });
 
