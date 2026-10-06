@@ -92,6 +92,22 @@ public final class AnvilTheme {
         GuiComponent.fill(ps, x, y + h - 1, x + w, y + h, SECTION_BORDER);
     }
 
+    /**
+     * 行：透明背景（让 section 透出），hover / selected 时叠加。
+     *
+     * @param hoverT    0..1 hover 插值
+     * @param selectedT 0..1 selected 插值（优先于 hover）
+     */
+    public static void row(PoseStack ps, int x, int y, int w, int h,
+                           float hoverT, float selectedT) {
+        int bg = 0;
+        bg = ColorUtil.lerpARGB(bg, ROW_HOVER, hoverT);
+        bg = ColorUtil.lerpARGB(bg, ROW_SELECTED, selectedT);
+        if ((bg >>> 24) != 0) {
+            GuiComponent.fill(ps, x, y, x + w, y + h, bg);
+        }
+    }
+
     /** 行：透明背景（让 section 透出），hover / selected 时叠加。 */
     public static void row(PoseStack ps, int x, int y, int w, int h,
                            boolean hover, boolean selected) {

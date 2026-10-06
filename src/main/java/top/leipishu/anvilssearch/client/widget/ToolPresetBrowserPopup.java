@@ -15,6 +15,7 @@ import top.leipishu.anvilssearch.simulation.ToolStatsCalculator;
 import top.leipishu.tinkerssearch.client.gui.components.CardBackground;
 import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
+import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -126,14 +127,17 @@ public class ToolPresetBrowserPopup {
         boolean h2 = mouseX >= fileBtnX && mouseX <= fileBtnX + BTN_W
                 && mouseY >= btnY && mouseY <= btnY + BTN_H;
 
+        float h1T = AnvilWidgetAnimations.buttonHover("presets.clipboard", h1);
+        float h2T = AnvilWidgetAnimations.buttonHover("presets.file", h2);
+
         AnvilTheme.button(ps, font, clipboardBtnX, btnY, BTN_W, BTN_H,
                 new TranslatableComponent(
                         "gui.anvilssearch.sim.browser.from_clipboard").getString(),
-                h1, false);
+                h1T, 0f);
         AnvilTheme.button(ps, font, fileBtnX, btnY, BTN_W, BTN_H,
                 new TranslatableComponent(
                         "gui.anvilssearch.sim.browser.from_file").getString(),
-                h2, false);
+                h2T, 0f);
 
         // 分割线（紧跟按钮下方 3px）
         int dividerY = btnY + BTN_H + 3;
@@ -188,7 +192,9 @@ public class ToolPresetBrowserPopup {
         boolean hover = mouseX >= x && mouseX <= x + w
                 && mouseY >= y && mouseY <= y + ROW_H;
 
-        AnvilTheme.row(ps, x, y, w, ROW_H, hover, false);
+        String rowKey = p.toolId + "@" + p.savedAt;
+        float hoverT = AnvilWidgetAnimations.rowHover("preset:" + rowKey, hover);
+        AnvilTheme.row(ps, x, y, w, ROW_H, hoverT, 0f);
 
         ToolDefinitionIndex.Entry def = findDef(p.toolId);
 

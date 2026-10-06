@@ -9,6 +9,8 @@ import top.leipishu.anvilssearch.client.AnvilPanelLayout;
 import top.leipishu.anvilssearch.data.tool.ToolDefinitionIndex;
 import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
+import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
+import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 
 import java.util.List;
 
@@ -79,14 +81,21 @@ public class ToolListWidget {
 
                 boolean selected = (e.definition == selectedDefinition);
 
-                int bg = selected ? 0xFF334422 : (hover ? 0xFF3A3A3A : 0);
-                if (bg != 0) {
+                String rowKey = e.id != null ? e.id.toString()
+                        : String.valueOf(e.hashCode());
+                float hoverT = AnvilWidgetAnimations.rowHover("tool:" + rowKey, hover);
+                float selectedT = AnvilWidgetAnimations.rowSelected("tool:" + rowKey, selected);
+
+                int bg = ColorUtil.lerpARGB(0, 0xFF3A3A3A, hoverT);
+                bg = ColorUtil.lerpARGB(bg, 0xFF334422, selectedT);
+                if ((bg >>> 24) != 0) {
                     GuiComponent.fill(ps, x, rowY, x + areaW,
                             rowY + AnvilPanelLayout.TOOL_ROW_H, bg);
                 }
 
-                int color = selected ? 0xFFCCFFCC : (hover ? 0xFFFFFF : 0xCCCCCC);
-                font.draw(ps, e.getDisplayName(), x + 4, rowY + 3, color);
+                int textColor = ColorUtil.lerpARGB(0xFFCCCCCC, 0xFFFFFFFF, hoverT);
+                textColor = ColorUtil.lerpARGB(textColor, 0xFFCCFFCC, selectedT);
+                font.draw(ps, e.getDisplayName(), x + 4, rowY + 3, textColor);
 
                 rowY += AnvilPanelLayout.TOOL_ROW_H;
             }

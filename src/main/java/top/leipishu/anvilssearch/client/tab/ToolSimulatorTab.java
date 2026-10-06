@@ -33,6 +33,7 @@ import top.leipishu.anvilssearch.simulation.ToolPresetCodec;
 import top.leipishu.anvilssearch.simulation.ToolPresetStore;
 import top.leipishu.anvilssearch.simulation.ToolSimulationModel;
 import top.leipishu.anvilssearch.simulation.ToolStatsCalculator;
+import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
 import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
 
@@ -228,35 +229,39 @@ public class ToolSimulatorTab implements AnvilTab {
         toolbarExportX = x + TOOLBAR_BTN_W + TOOLBAR_BTN_GAP;
         toolbarImportX = x + (TOOLBAR_BTN_W + TOOLBAR_BTN_GAP) * 2;
 
-        // ★ 判断是否可保存/导出
         boolean canSave = model.getSelectedTool() != null && model.isComplete();
 
         boolean h1 = inRect(mouseX, mouseY, toolbarSaveX,   y, TOOLBAR_BTN_W, TOOLBAR_H);
         boolean h2 = inRect(mouseX, mouseY, toolbarExportX, y, TOOLBAR_BTN_W, TOOLBAR_H);
         boolean h3 = inRect(mouseX, mouseY, toolbarImportX, y, TOOLBAR_BTN_W, TOOLBAR_H);
 
-        // 保存按钮：不可用时禁用（灰显），hover 仍显示提示
+        // ★ 保存
+        float h1T = AnvilWidgetAnimations.buttonHover("sim.save", canSave && h1);
         AnvilTheme.button(ps, font, toolbarSaveX, y, TOOLBAR_BTN_W, TOOLBAR_H,
                 new TranslatableComponent("gui.anvilssearch.sim.save").getString(),
-                canSave && h1, false);
+                h1T, 0f);
         if (h1) {
             tooltip(canSave
                     ? "gui.anvilssearch.sim.save.tip"
                     : "gui.anvilssearch.sim.export.incomplete");
         }
 
+        // ★ 导出
+        float h2T = AnvilWidgetAnimations.buttonHover("sim.export", canSave && h2);
         AnvilTheme.button(ps, font, toolbarExportX, y, TOOLBAR_BTN_W, TOOLBAR_H,
                 new TranslatableComponent("gui.anvilssearch.sim.export").getString(),
-                canSave && h2, false);
+                h2T, 0f);
         if (h2) {
             tooltip(canSave
                     ? "gui.anvilssearch.sim.export.tip"
                     : "gui.anvilssearch.sim.export.incomplete");
         }
 
+        // ★ 导入
+        float h3T = AnvilWidgetAnimations.buttonHover("sim.import", h3);
         AnvilTheme.button(ps, font, toolbarImportX, y, TOOLBAR_BTN_W, TOOLBAR_H,
                 new TranslatableComponent("gui.anvilssearch.sim.import").getString(),
-                h3, false);
+                h3T, 0f);
         if (h3) tooltip("gui.anvilssearch.sim.import.tip");
 
         if (feedbackText != null && System.currentTimeMillis() < feedbackUntil) {

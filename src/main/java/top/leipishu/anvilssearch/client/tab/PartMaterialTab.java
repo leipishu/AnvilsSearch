@@ -21,6 +21,7 @@ import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
+import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch.PinyinResult;
 
@@ -366,7 +367,10 @@ public class PartMaterialTab implements AnvilTab {
     private void drawPartRow(PoseStack ps, Font font,
                              int x, int y, int w, Row r,
                              boolean hover, boolean expanded) {
-        AnvilTheme.row(ps, x, y, w, AnvilTheme.ROW_H, hover, false);
+        String rowKey = r.partId != null ? r.partId.toString()
+                : String.valueOf(r.hashCode());
+        float hoverT = AnvilWidgetAnimations.rowHover("part:" + rowKey, hover);
+        AnvilTheme.row(ps, x, y, w, AnvilTheme.ROW_H, hoverT, 0f);
         if (expanded) {
             AnvilTheme.rowAccentBar(ps, x, y, AnvilTheme.ROW_H, AnvilTheme.ACCENT);
         }
@@ -394,7 +398,10 @@ public class PartMaterialTab implements AnvilTab {
                                  int x, int y, int w,
                                  PartMaterialIndex.Entry m, boolean hover,
                                  boolean isOpen) {
-        AnvilTheme.row(ps, x, y, w, AnvilTheme.SUB_ROW_H, hover || isOpen, false);
+        String rowKey = m.id != null ? m.id.toString() : String.valueOf(m.hashCode());
+        float hoverT = AnvilWidgetAnimations.rowHover("partmat:" + rowKey,
+                hover || isOpen);
+        AnvilTheme.row(ps, x, y, w, AnvilTheme.SUB_ROW_H, hoverT, 0f);
         int textY = AnvilTheme.centeredTextY(y, AnvilTheme.SUB_ROW_H, font);
         font.draw(ps, m.getDisplayName(), x + 6, textY,
                 isOpen ? AnvilTheme.ACCENT_SOFT

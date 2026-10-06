@@ -11,6 +11,8 @@ import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
+import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
+import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch.PinyinResult;
 
@@ -144,12 +146,19 @@ public class MaterialPickerPopup {
                     if (rowY + ROW_H >= areaY && rowY <= areaY + areaH) {
                         boolean hover = mouseX >= areaX && mouseX <= areaX + areaW
                                 && mouseY >= rowY && mouseY <= rowY + ROW_H;
-                        if (hover) {
+
+                        String rowKey = e.id != null ? e.id.toString()
+                                : String.valueOf(e.hashCode());
+                        float hoverT = AnvilWidgetAnimations.rowHover("picker:" + rowKey, hover);
+
+                        if (hoverT > 0.01f) {
                             GuiComponent.fill(ps, areaX, rowY, areaX + areaW,
-                                    rowY + ROW_H, 0x33FFFFFF);
+                                    rowY + ROW_H,
+                                    ColorUtil.withAlphaFactor(0x33FFFFFF, hoverT));
                         }
-                        font.draw(ps, e.getDisplayName(), areaX + 4, rowY + 3,
-                                hover ? 0xFFFFFF : 0xCCCCCC);
+
+                        int textColor = ColorUtil.lerpARGB(0xFFCCCCCC, 0xFFFFFFFF, hoverT);
+                        font.draw(ps, e.getDisplayName(), areaX + 4, rowY + 3, textColor);
                     }
                     rowY += ROW_H;
                 }

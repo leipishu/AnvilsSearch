@@ -27,6 +27,8 @@ import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
+import top.leipishu.anvilssearch.client.animation.controller.AnvilWidgetAnimations;
+import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch;
 import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch.PinyinResult;
 
@@ -469,30 +471,29 @@ public class ModifierSearchTab implements AnvilTab {
         int metX    = unlX + iconW + gap;
         int slotX   = metX + iconW + gap;
 
-        toolbarStarX = starX;
-        toolbarStarW = starW;
-        toolbarIncX = incX;
-        toolbarIncW = iconW;
-        toolbarUnlX = unlX;
-        toolbarUnlW = iconW;
-        toolbarMetX = metX;
-        toolbarMetW = iconW;
-        toolbarSlotX = slotX;
-        toolbarSlotW = slotW;
+        toolbarStarX = starX;  toolbarStarW = starW;
+        toolbarIncX  = incX;   toolbarIncW  = iconW;
+        toolbarUnlX  = unlX;   toolbarUnlW  = iconW;
+        toolbarMetX  = metX;   toolbarMetW  = iconW;
+        toolbarSlotX = slotX;  toolbarSlotW = slotW;
 
         searchBox.setBounds(searchX, y, searchW, TOOLBAR_H);
         searchBox.render(ps, mouseX, mouseY, font);
 
+        // ★ 收藏
         boolean starHover = mouseX >= starX && mouseX <= starX + starW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
+        float starHoverT = AnvilWidgetAnimations.buttonHover("mod.toolbar.star", starHover);
         String starLabel = favoritesOnly ? "\u2605" : "\u2606";
         AnvilTheme.button(ps, font, starX, y, starW, TOOLBAR_H,
-                starLabel, starHover, favoritesOnly);
+                starLabel, starHoverT, favoritesOnly ? 1f : 0f);
 
+        // ★ 叠加
         boolean incHover = mouseX >= incX && mouseX <= incX + iconW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
+        float incHoverT = AnvilWidgetAnimations.buttonHover("mod.toolbar.inc", incHover);
         AnvilTheme.button(ps, font, incX, y, iconW, TOOLBAR_H,
-                "\u26A1", incHover, filterIncremental);
+                "\u26A1", incHoverT, filterIncremental ? 1f : 0f);
         if (incHover) {
             List<Component> tip = new ArrayList<>();
             tip.add(new TranslatableComponent(
@@ -500,10 +501,12 @@ public class ModifierSearchTab implements AnvilTab {
             panel.setPendingTooltip(tip);
         }
 
+        // ★ 无上限
         boolean unlHover = mouseX >= unlX && mouseX <= unlX + iconW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
+        float unlHoverT = AnvilWidgetAnimations.buttonHover("mod.toolbar.unl", unlHover);
         AnvilTheme.button(ps, font, unlX, y, iconW, TOOLBAR_H,
-                "\u221E", unlHover, filterUnlimited);
+                "\u221E", unlHoverT, filterUnlimited ? 1f : 0f);
         if (unlHover) {
             List<Component> tip = new ArrayList<>();
             tip.add(new TranslatableComponent(
@@ -511,10 +514,12 @@ public class ModifierSearchTab implements AnvilTab {
             panel.setPendingTooltip(tip);
         }
 
+        // ★ 前置达成
         boolean metHover = mouseX >= metX && mouseX <= metX + iconW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
+        float metHoverT = AnvilWidgetAnimations.buttonHover("mod.toolbar.met", metHover);
         AnvilTheme.button(ps, font, metX, y, iconW, TOOLBAR_H,
-                "\u2713", metHover, filterReqMet);
+                "\u2713", metHoverT, filterReqMet ? 1f : 0f);
         if (metHover) {
             List<Component> tip = new ArrayList<>();
             tip.add(new TranslatableComponent(
@@ -522,9 +527,11 @@ public class ModifierSearchTab implements AnvilTab {
             panel.setPendingTooltip(tip);
         }
 
+        // ★ 槽位下拉触发器
         boolean slotHover = mouseX >= slotX && mouseX <= slotX + slotW
                 && mouseY >= y && mouseY <= y + TOOLBAR_H;
         boolean slotActive = !slotFilter.isEmpty();
+        float slotHoverT = AnvilWidgetAnimations.buttonHover("mod.toolbar.slot", slotHover);
 
         String label;
         if (slotActive) {
@@ -539,7 +546,7 @@ public class ModifierSearchTab implements AnvilTab {
             label = font.plainSubstrByWidth(label, slotW - 10) + "...";
         }
         AnvilTheme.button(ps, font, slotX, y, slotW, TOOLBAR_H,
-                label, slotHover, slotActive);
+                label, slotHoverT, slotActive ? 1f : 0f);
     }
 
     private static boolean sameStack(ItemStack a, ItemStack b) {
@@ -663,8 +670,9 @@ public class ModifierSearchTab implements AnvilTab {
                 : new TranslatableComponent(
                 "gui.anvilssearch.modifier.filter.select_all").getString();
 
+        float btnHoverT = AnvilWidgetAnimations.buttonHover("mod.dropdown.all", btnHover);
         AnvilTheme.button(ps, font, btnX, btnY, btnW, btnH,
-                btnLabel, btnHover, allSelected);
+                btnLabel, btnHoverT, allSelected ? 1f : 0f);
 
         GuiComponent.fill(ps, x + 2, y + DROP_HEADER_H - 1,
                 x + w - 2, y + DROP_HEADER_H, AnvilTheme.SECTION_BORDER);
@@ -673,9 +681,11 @@ public class ModifierSearchTab implements AnvilTab {
         for (String type : slotTypes) {
             boolean hover = mouseX >= x + 1 && mouseX <= x + w - 1
                     && mouseY >= cy && mouseY <= cy + DROP_ITEM_H;
-            if (hover) {
+
+            float itemHoverT = AnvilWidgetAnimations.rowHover("mod.dropdown:" + type, hover);
+            if (itemHoverT > 0.01f) {
                 GuiComponent.fill(ps, x + 1, cy, x + w - 1, cy + DROP_ITEM_H,
-                        AnvilTheme.ROW_HOVER);
+                        ColorUtil.withAlphaFactor(AnvilTheme.ROW_HOVER, itemHoverT));
             }
             boolean checked = slotFilter.contains(type);
             String box = checked ? "\u2611" : "\u2610";
@@ -708,12 +718,16 @@ public class ModifierSearchTab implements AnvilTab {
         boolean hover = mouseX >= x && mouseX <= x + clipW
                 && mouseY >= y && mouseY <= y + ROW_H;
 
-        if (sel) {
-            GuiComponent.fill(ps, x, y, x + clipW, y + ROW_H,
-                    selectedRowBg(e.color));
-        } else if (hover) {
-            GuiComponent.fill(ps, x, y, x + clipW, y + ROW_H,
-                    AnvilTheme.ROW_HOVER);
+        String rowKey = e.id != null ? e.id : String.valueOf(e.hashCode());
+        float hoverT = AnvilWidgetAnimations.rowHover("mod:" + rowKey, hover);
+        float selectedT = AnvilWidgetAnimations.rowSelected("mod:" + rowKey, sel);
+
+        int bg = ColorUtil.lerpARGB(0, AnvilTheme.ROW_HOVER, hoverT);
+        if (selectedT > 0.01f) {
+            bg = ColorUtil.lerpARGB(bg, selectedRowBg(e.color), selectedT);
+        }
+        if ((bg >>> 24) != 0) {
+            GuiComponent.fill(ps, x, y, x + clipW, y + ROW_H, bg);
         }
 
         int textY = AnvilTheme.centeredTextY(y, ROW_H, font);
@@ -799,12 +813,17 @@ public class ModifierSearchTab implements AnvilTab {
         boolean hover = mouseX >= x && mouseX <= x + clipW
                 && mouseY >= y && mouseY <= y + SUB_ROW_H;
 
-        if (sel) {
-            GuiComponent.fill(ps, x, y, x + clipW, y + SUB_ROW_H,
-                    selectedRowBg(e.color));
-        } else if (hover) {
-            GuiComponent.fill(ps, x, y, x + clipW, y + SUB_ROW_H,
-                    AnvilTheme.ROW_HOVER);
+        String subKey = (e.id != null ? e.id : String.valueOf(e.hashCode()))
+                + "#" + li.level;
+        float hoverT = AnvilWidgetAnimations.rowHover("mod.sub:" + subKey, hover);
+        float selectedT = AnvilWidgetAnimations.rowSelected("mod.sub:" + subKey, sel);
+
+        int bg = ColorUtil.lerpARGB(0, AnvilTheme.ROW_HOVER, hoverT);
+        if (selectedT > 0.01f) {
+            bg = ColorUtil.lerpARGB(bg, selectedRowBg(e.color), selectedT);
+        }
+        if ((bg >>> 24) != 0) {
+            GuiComponent.fill(ps, x, y, x + clipW, y + SUB_ROW_H, bg);
         }
 
         String name = li.displayName.getString();
