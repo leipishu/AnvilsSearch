@@ -623,11 +623,11 @@ public class ModifierSearchTab implements AnvilTab {
         for (ModifierIndex.Entry e : filtered) {
             totalH += ROW_H;
             if (isMultiLevelEntry(e)) {
-                String expandKey = e.id != null ? e.id : String.valueOf(e.hashCode());
                 boolean expanded = expandedInList.contains(e.id);
-                float p = AnvilWidgetAnimations.expandProgress("mod.expand:" + expandKey, expanded);
+                String ek = e.id != null ? e.id : String.valueOf(e.hashCode());
+                float p = AnvilWidgetAnimations.expandProgress("mod.expand:" + ek, expanded);
                 if (p > 0.01f) {
-                    totalH += e.levels.size() * SUB_ROW_H;
+                    totalH += (int) (e.levels.size() * SUB_ROW_H * p);
                 }
             }
         }
@@ -638,9 +638,8 @@ public class ModifierSearchTab implements AnvilTab {
         int clipW = listW - scrollBarW;
 
         boolean scissorOk = ScissorHelper.enableScissor(innerX, listTop, clipW, listH);
+        if (scissorOk) RenderSystem.disableDepthTest();
         try {
-            if (scissorOk) RenderSystem.disableDepthTest();
-
             int rowY = listTop - scrollOffset;
             for (ModifierIndex.Entry e : filtered) {
                 boolean lightning = isLightningEntry(e);
@@ -653,23 +652,43 @@ public class ModifierSearchTab implements AnvilTab {
                         mouseX, mouseY);
                 rowY += ROW_H;
 
-                // ★ 无条件驱动展开进度，展开/收起都有动画
                 String expandKey = e.id != null ? e.id : String.valueOf(e.hashCode());
                 float p = AnvilWidgetAnimations.expandProgress("mod.expand:" + expandKey, expanded);
 
                 if (p > 0.01f) {
-                    RenderSystem.setShaderColor(1f, 1f, 1f, p);
+                    int fullH = e.levels.size() * SUB_ROW_H;
+                    int visH = Math.max(1, (int) (fullH * p));
+
+                    ScissorHelper.disableScissor();
                     try {
-                        for (int i = 0; i < e.levels.size(); i++) {
-                            ModifierIndex.LevelInfo li = e.levels.get(i);
-                            drawSubRow(ps, font, innerX, rowY, clipW, e, li,
-                                    selected == e && selectedIndex == i,
-                                    mouseX, mouseY);
-                            rowY += SUB_ROW_H;
+                        int clipTop = Math.max(rowY, listTop);
+                        int clipBot = Math.min(rowY + visH, listTop + listH);
+                        int clipH = clipBot - clipTop;
+
+                        if (clipH > 0) {
+                            boolean sOk = ScissorHelper.enableScissor(
+                                    innerX, clipTop, clipW, clipH);
+                            if (sOk) RenderSystem.disableDepthTest();
+                            try {
+                                int rowYY = rowY;
+                                for (int i = 0; i < e.levels.size(); i++) {
+                                    ModifierIndex.LevelInfo li = e.levels.get(i);
+                                    drawSubRow(ps, font, innerX, rowYY, clipW, e, li,
+                                            selected == e && selectedIndex == i,
+                                            mouseX, mouseY);
+                                    rowYY += SUB_ROW_H;
+                                }
+                            } finally {
+                                if (sOk) ScissorHelper.disableScissor();
+                            }
                         }
                     } finally {
-                        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                        boolean restored = ScissorHelper.enableScissor(
+                                innerX, listTop, clipW, listH);
+                        if (restored) RenderSystem.disableDepthTest();
                     }
+
+                    rowY += fullH;
                 }
             }
         } finally {

@@ -130,9 +130,9 @@ public class ToolPreviewPanel {
         int clipW = areaW - (hasScroll ? SCROLL_BAR_WIDTH + SCROLL_BAR_PADDING : 0);
 
         boolean scissorOk = ScissorHelper.enableScissor(x + 2, y + 2, clipW, areaH);
-        try {
-            if (scissorOk) RenderSystem.disableDepthTest();
+        if (scissorOk) RenderSystem.disableDepthTest();
 
+        try {
             int cx = x + 4;
             int cy = y + 4 - scrollOffset;
 
@@ -224,33 +224,50 @@ public class ToolPreviewPanel {
                     if (d == null) continue;
 
                     boolean expanded = expandedSlots.contains(i);
-                    int cardH = d.measureHeight(font, clipW - 4, expanded);
+
+                    int collapsedH = d.measureHeight(font, clipW - 4, false);
+                    int fullH      = d.measureHeight(font, clipW - 4, true);
 
                     headerHits.add(new HeaderHit(cx, cy, clipW - 4,
                             MaterialDetail.HEADER_H, i));
 
-                    // ★ 展开进度
-                    float p = AnvilWidgetAnimations.expandProgress(
-                            "preview.card:" + i, expanded);
+                    String ek = "preview.card:" + i;
+                    float p = AnvilWidgetAnimations.expandProgress(ek, expanded);
 
-                    if (expanded && p < 0.99f) {
-                        // 展开动画进行中：只淡入，不做垂直位移
-                        RenderSystem.setShaderColor(1f, 1f, 1f, p);
+                    if (p > 0.01f && p < 0.99f) {
+                        // ★ 展开/收起动画进行中：裁剪到动画高度
+                        int animH = (int) (collapsedH + (fullH - collapsedH) * p);
+
+                        ScissorHelper.disableScissor();
                         try {
-                            List<Component> tip = d.render(ps, font, cx, cy,
-                                    clipW - 4, mouseX, mouseY, expanded, true);
-                            if (tip != null) pendingTooltip = tip;
+                            boolean sOk = ScissorHelper.enableScissor(
+                                    cx, cy, clipW - 4, Math.max(1, animH));
+                            if (sOk) RenderSystem.disableDepthTest();
+                            try {
+                                List<Component> tip = d.render(ps, font, cx, cy,
+                                        clipW - 4, mouseX, mouseY, expanded, true);
+                                if (tip != null) pendingTooltip = tip;
+                            } finally {
+                                if (sOk) ScissorHelper.disableScissor();
+                            }
                         } finally {
-                            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                            boolean restored = ScissorHelper.enableScissor(
+                                    x + 2, y + 2, clipW, areaH);
+                            if (restored) RenderSystem.disableDepthTest();
                         }
                     } else {
-                        // 折叠态或动画完成：正常渲染（头部永远可见）
+                        // 完全展开或完全收起：直接渲染
                         List<Component> tip = d.render(ps, font, cx, cy,
                                 clipW - 4, mouseX, mouseY, expanded, true);
                         if (tip != null) pendingTooltip = tip;
                     }
 
-                    cy += cardH + 4;
+                    // ★ 推进位置：动画中按当前可见高度，静止时按最终高度
+                    int usedH = expanded ? fullH : collapsedH;
+                    if (p > 0.01f && p < 0.99f) {
+                        usedH = (int) (collapsedH + (fullH - collapsedH) * p);
+                    }
+                    cy += usedH + 4;
                 }
             } else {
                 cy += 2;
@@ -258,6 +275,7 @@ public class ToolPreviewPanel {
                                 "gui.anvilssearch.sim.select_materials").getString(),
                         cx, cy, 0x666666);
             }
+
         } finally {
             if (scissorOk) {
                 ScissorHelper.disableScissor();
@@ -301,15 +319,31 @@ public class ToolPreviewPanel {
         boolean hasCards = cardDetails != null && !cardDetails.isEmpty();
         if (hasCards) {
             totalH += 2 + 1 + 4;
+
             for (int i = 0; i < model.getSlotCount(); i++) {
                 MaterialDetail d = cardDetails.get(i);
                 if (d == null) continue;
+
                 boolean expanded = expandedSlots.contains(i);
-                totalH += d.measureHeight(font, effectiveW, expanded) + 4;
+                int collapsedH = d.measureHeight(font, effectiveW, false);
+                int fullH      = d.measureHeight(font, effectiveW, true);
+
+                String ek = "preview.card:" + i;
+                float p = AnvilWidgetAnimations.expandProgress(ek, expanded);
+
+                int usedH;
+                if (p > 0.01f && p < 0.99f) {
+                    usedH = (int) (collapsedH + (fullH - collapsedH) * p);
+                } else {
+                    usedH = expanded ? fullH : collapsedH;
+                }
+
+                totalH += usedH + 4;
             }
         } else {
             totalH += 2 + LINE_H;
         }
+
         return totalH;
     }
 
