@@ -106,5 +106,7 @@
   "gui.anvilssearch.sim.browser.parts_suffix": "parts",
   "gui.anvilssearch.sim.export.incomplete": "Fill all slots first",
   "gui.anvilssearch.sim.browser.delete": "Delete",
-  "gui.anvilssearch.sim.browser.delete.tip": "Delete this preset"
+  "gui.anvilssearch.sim.browser.delete.tip": "Delete this preset",
+
+  "gui.anvilssearch.modifier.variant_card": "Variant"
 }

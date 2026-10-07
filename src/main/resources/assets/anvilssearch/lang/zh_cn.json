@@ -107,6 +107,7 @@
   "gui.anvilssearch.sim.browser.parts_suffix": "部件",
   "gui.anvilssearch.sim.export.incomplete": "请先填满所有部件槽位",
   "gui.anvilssearch.sim.browser.delete": "删除",
-  "gui.anvilssearch.sim.browser.delete.tip": "删除此方案"
+  "gui.anvilssearch.sim.browser.delete.tip": "删除此方案",
 
+  "gui.anvilssearch.modifier.variant_card": "变体"
 }
