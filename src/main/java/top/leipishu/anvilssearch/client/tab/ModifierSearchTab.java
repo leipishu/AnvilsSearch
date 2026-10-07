@@ -204,6 +204,37 @@ public class ModifierSearchTab implements AnvilTab {
         return out;
     }
 
+    // ============================================================
+    // ===== 动画 key（两级唯一性）=================================
+    // ============================================================
+
+    /**
+     * Entry 级唯一 key：使用 Modifier 实例的 identityHashCode。
+     *
+     * <p>同一个 modifier 实例在游戏运行期是单例（ModifierManager 注册管理），
+     * identityHashCode 稳定且唯一。相比之下，{@code e.id} 是 registryPath
+     * 去掉命名空间后的路径，两个不同 namespace 的同名 modifier 会产生相同的
+     * id，导致 entry 之间动画 key 碰撞。
+     */
+    private static String entryAnimKey(ModifierIndex.Entry e) {
+        if (e == null) return "null";
+        int mid = System.identityHashCode(e.modifier);
+        String rp = e.registryPath != null ? e.registryPath : "?";
+        return rp + "@" + Integer.toHexString(mid);
+    }
+
+    /**
+     * 子项唯一 key：使用在 levels 列表中的索引。
+     *
+     * <p>★ 关键修复：不能用 li.level —— group 合并后，同一个 Entry 内可能
+     * 出现多个相同的 level（不同 namespace 的同名 modifier、变体配方等），
+     * 会导致两个子项共用同一个 Animator，同时高亮。
+     * 索引在同一 Entry 内天然唯一，能彻底避免碰撞。
+     */
+    private static String subRowAnimKey(ModifierIndex.Entry e, int index) {
+        return entryAnimKey(e) + "#" + index;
+    }
+
     private void applyFilter(String kw) {
         String k = kw == null ? "" : kw.trim().toLowerCase(Locale.ROOT);
 
@@ -245,10 +276,11 @@ public class ModifierSearchTab implements AnvilTab {
         scrollOffset = 0;
         rightScrollOffset = 0;
 
+        // ★ 修复：用 modifier 实例重新匹配 selected，避免 id 碰撞导致错配
         if (selected != null) {
             boolean found = false;
             for (ModifierIndex.Entry e : filtered) {
-                if (selected.id != null && selected.id.equals(e.id)) {
+                if (selected.modifier == e.modifier) {
                     selected = e;
                     if (selectedIndex >= e.levels.size()) selectedIndex = -1;
                     found = true;
@@ -459,7 +491,6 @@ public class ModifierSearchTab implements AnvilTab {
                                           int mouseX, int mouseY) {
         if (!slotDropdownOpen) return;
 
-        // ★ 强制 flush 之前所有绘制（物品图标 / 数量数字）
         try {
             Minecraft.getInstance().renderBuffers().bufferSource().endBatch();
         } catch (Throwable ignored) {}
@@ -471,7 +502,6 @@ public class ModifierSearchTab implements AnvilTab {
         try {
             renderSlotDropdown(ps, font, mouseX, mouseY);
         } finally {
-            // ★ popup 结束后立即 flush，防止其内容泄漏到数字层
             try {
                 Minecraft.getInstance().renderBuffers().bufferSource().endBatch();
             } catch (Throwable ignored) {}
@@ -624,7 +654,7 @@ public class ModifierSearchTab implements AnvilTab {
             totalH += ROW_H;
             if (isMultiLevelEntry(e)) {
                 boolean expanded = expandedInList.contains(e.id);
-                String ek = e.id != null ? e.id : String.valueOf(e.hashCode());
+                String ek = entryAnimKey(e);
                 float p = AnvilWidgetAnimations.expandProgress("mod.expand:" + ek, expanded);
                 if (p > 0.01f) {
                     totalH += (int) (e.levels.size() * SUB_ROW_H * p);
@@ -652,7 +682,7 @@ public class ModifierSearchTab implements AnvilTab {
                         mouseX, mouseY);
                 rowY += ROW_H;
 
-                String expandKey = e.id != null ? e.id : String.valueOf(e.hashCode());
+                String expandKey = entryAnimKey(e);
                 float p = AnvilWidgetAnimations.expandProgress("mod.expand:" + expandKey, expanded);
 
                 if (p > 0.01f) {
@@ -673,7 +703,9 @@ public class ModifierSearchTab implements AnvilTab {
                                 int rowYY = rowY;
                                 for (int i = 0; i < e.levels.size(); i++) {
                                     ModifierIndex.LevelInfo li = e.levels.get(i);
-                                    drawSubRow(ps, font, innerX, rowYY, clipW, e, li,
+                                    // ★ 传入索引 i，确保动画 key 在 Entry 内唯一
+                                    drawSubRow(ps, font, innerX, rowYY, clipW,
+                                            e, li, i,
                                             selected == e && selectedIndex == i,
                                             mouseX, mouseY);
                                     rowYY += SUB_ROW_H;
@@ -801,7 +833,8 @@ public class ModifierSearchTab implements AnvilTab {
         boolean hover = mouseX >= x && mouseX <= x + clipW
                 && mouseY >= y && mouseY <= y + ROW_H;
 
-        String rowKey = e.id != null ? e.id : String.valueOf(e.hashCode());
+        // ★ 修复：动画 key 使用 entryAnimKey(e)，避免 e.id 碰撞
+        String rowKey = entryAnimKey(e);
         float hoverT = AnvilWidgetAnimations.rowHover("mod:" + rowKey, hover);
         float selectedT = AnvilWidgetAnimations.rowSelected("mod:" + rowKey, sel);
 
@@ -824,7 +857,8 @@ public class ModifierSearchTab implements AnvilTab {
         int starColor = fav ? AnvilTheme.ACCENT
                 : (starHover ? AnvilTheme.TEXT_MUTED : AnvilTheme.TEXT_DIM);
 
-        String starKey = e.id != null ? e.id : String.valueOf(e.hashCode());
+        // ★ 修复：星标动画 key 也用 entryAnimKey(e)
+        String starKey = entryAnimKey(e);
         float starScale = AnvilWidgetAnimations.starScale(starKey);
         boolean applyStarScale = Math.abs(starScale - 1f) > 0.005f;
 
@@ -906,15 +940,22 @@ public class ModifierSearchTab implements AnvilTab {
         }
     }
 
+    /**
+     * ★ 修复核心：子项动画 key 使用在 levels 中的 index，而非 li.level。
+     *
+     * <p>li.level 在 group 合并后可能出现重复（同一 Entry 内多个同 level 的
+     * LevelInfo），会导致两个子项共用同一个 Animator，同时高亮。
+     * index 在同一 Entry 内天然唯一。
+     */
     private void drawSubRow(PoseStack ps, Font font,
                             int x, int y, int clipW,
                             ModifierIndex.Entry e, ModifierIndex.LevelInfo li,
+                            int index,
                             boolean sel, int mouseX, int mouseY) {
         boolean hover = mouseX >= x && mouseX <= x + clipW
                 && mouseY >= y && mouseY <= y + SUB_ROW_H;
 
-        String subKey = (e.id != null ? e.id : String.valueOf(e.hashCode()))
-                + "#" + li.level;
+        String subKey = subRowAnimKey(e, index);
         float hoverT = AnvilWidgetAnimations.rowHover("mod.sub:" + subKey, hover);
         float selectedT = AnvilWidgetAnimations.rowSelected("mod.sub:" + subKey, sel);
 
@@ -1367,7 +1408,6 @@ public class ModifierSearchTab implements AnvilTab {
                 int tw = font.width(s);
                 int tx = ox + 16 - tw - 1;
                 int ty = oy + 16 - 9;
-                // ★ 用 draw 而非 drawShadow，避免阴影层错位
                 font.draw(ps, s, tx, ty, 0xFFFFFF);
             }
         } catch (Throwable ignored) {}
@@ -1475,8 +1515,8 @@ public class ModifierSearchTab implements AnvilTab {
                     int starX = leftListX + 3;
                     if (mx >= starX - 2 && mx <= starX + STAR_W + 2) {
                         FavoritesStore.toggle(e.id);
-                        AnvilWidgetAnimations.triggerStarPulse(
-                                e.id != null ? e.id : String.valueOf(e.hashCode()));
+                        // ★ 修复：脉冲动画 key 用 entryAnimKey(e)
+                        AnvilWidgetAnimations.triggerStarPulse(entryAnimKey(e));
                         if (favoritesOnly) applyFilter(panel.getSearchKeyword());
                         return true;
                     }
